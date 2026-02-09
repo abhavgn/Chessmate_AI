@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Chessmate AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div id="eval-bar"></div>
+
+        <div id="board-container">
+            <h1>Chessmate AI</h1>
+            <div id="myBoard" style="width: 400px"></div>
+            <div class="controls">
+                <button id="explain-btn">Explain Last Move</button>
+                <button id="suggest-btn">Best Move?</button>
+            </div>
+        </div>
+
+        <div id="chat-sidebar">
+            <h3>AI Coach Chat</h3>
+            <div id="chat-history">
+                <p><strong>Coach:</strong> Hello James! Ready to analyze?</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
