@@ -17,6 +17,9 @@ def make_move():
     data = request.json
     move_text = data.get("move") # e.g., "e2e4"
     
+    # ADD THIS PRINT STATEMENT
+    print(f"Attempting move: {move_text} | Current Turn: {'White' if board.turn else 'Black'}")
+
     try:
         # Create a move object from the text
         move = chess.Move.from_uci(move_text)
