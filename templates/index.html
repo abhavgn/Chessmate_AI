@@ -31,12 +31,11 @@
     </div>
     <script>
         var board = null;
-        var game = new Chess(); // This is a helper library for the frontend
+        var game = new Chess();
 
         function onDrop(source, target) {
-            var move = source + target; // e.g., "e2e4"
+            var move = source + target;
 
-            // Send the move to your Flask /move route
             fetch('/move', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -45,10 +44,9 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    console.log("Move successful! New FEN: " + data.fen);
+                    console.log("Move accepted!");
                 } else {
-                    // If move is illegal, snap the piece back
-                    board.position(data.fen || 'start');
+                    board.position('start'); 
                     alert("Invalid move!");
                 }
             });
@@ -57,7 +55,21 @@
         var config = {
             draggable: true,
             position: 'start',
-            onDrop: onDrop
+            onDrop: onDrop,
+            // This function links your downloaded filenames to the board
+            pieceTheme: function (piece) {
+                var color = (piece.search(/w/) !== -1) ? 'white' : 'black';
+                var type = '';
+                if (piece.search(/P/) !== -1) type = 'pawn';
+                if (piece.search(/R/) !== -1) type = 'rook';
+                if (piece.search(/N/) !== -1) type = 'knight';
+                if (piece.search(/B/) !== -1) type = 'bishop';
+                if (piece.search(/Q/) !== -1) type = 'queen';
+                if (piece.search(/K/) !== -1) type = 'king';
+                
+                // This assumes your files are in static/css/img/
+                return '/static/css/img/' + color + '-' + type + '.png';
+            }
         };
         board = Chessboard('myBoard', config);
     </script>
