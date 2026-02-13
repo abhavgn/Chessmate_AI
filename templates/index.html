@@ -11,7 +11,9 @@
 </head>
 <body>
     <div class="container">
-        <div id="eval-bar"></div>
+        <div id="eval-bar-container">
+            <div id="eval-bar"></div>
+        </div>
 
         <div id="board-container">
             <h1>Chessmate AI</h1>
@@ -19,6 +21,7 @@
             <div class="controls">
                 <button id="explain-btn">Explain Last Move</button>
                 <button id="suggest-btn">Best Move?</button>
+                <button id="reset-btn" onclick="resetGame()">Reset Game</button>
             </div>
         </div>
 
@@ -29,11 +32,13 @@
             </div>
         </div>
     </div>
+
     <script>
         var board = null;
         var game = new Chess();
 
         function onDrop(source, target) {
+            if (source === target) return 'snapback';
             var move = source + target;
 
             fetch('/move', {
@@ -44,11 +49,35 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    console.log("Move accepted!");
+                    board.position(data.fen);
+                    game.load(data.fen); // Keeps the frontend move turn in sync
+                    updateEvalBar(data.evaluation);
                 } else {
-                    board.position('start'); 
-                    alert("Invalid move!");
+                    board.position(game.fen()); 
+                    alert("Invalid: " + data.message);
                 }
+            });
+        }
+
+        function updateEvalBar(evalValue) {
+            const bar = document.getElementById('eval-bar');
+            if (typeof evalValue === 'string' && evalValue.startsWith('M')) {
+                bar.style.height = evalValue.includes('-') ? '0%' : '100%';
+            } else {
+                // Calculation for the bar height based on centipawns
+                let percentage = 50 + (evalValue * 10);
+                percentage = Math.max(5, Math.min(95, percentage)); 
+                bar.style.height = percentage + '%';
+            }
+        }
+
+        function resetGame() {
+            fetch('/reset', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                board.start();
+                game.reset();
+                updateEvalBar(0);
             });
         }
 
@@ -56,7 +85,6 @@
             draggable: true,
             position: 'start',
             onDrop: onDrop,
-            // This function links your downloaded filenames to the board
             pieceTheme: function (piece) {
                 var color = (piece.search(/w/) !== -1) ? 'white' : 'black';
                 var type = '';
@@ -66,8 +94,6 @@
                 if (piece.search(/B/) !== -1) type = 'bishop';
                 if (piece.search(/Q/) !== -1) type = 'queen';
                 if (piece.search(/K/) !== -1) type = 'king';
-                
-                // This assumes your files are in static/css/img/
                 return '/static/css/img/' + color + '-' + type + '.png';
             }
         };
