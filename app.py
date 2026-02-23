@@ -126,6 +126,41 @@ def reset_board():
 
 
 
+@app.route("/engine_move", methods=["POST"])
+def engine_move():
+    global board
+    data = request.json
+    elo_rating = int(data.get("level", 400))
+    
+    # Precise mapping for your specific increments
+    if elo_rating <= 400:   skill = 0   # Novice
+    elif elo_rating <= 800:  skill = 2   # Beginner
+    elif elo_rating <= 1200: skill = 5   # Intermediate
+    elif elo_rating <= 1600: skill = 10  # Advanced
+    elif elo_rating <= 2000: skill = 14  # Expert
+    elif elo_rating <= 2400: skill = 17  # Master
+    else:                    skill = 20  # 2800+ Super GM
+
+    try:
+        with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
+            engine.configure({"Skill Level": skill})
+            
+            # For the lowest level, we strictly limit how many positions it can see
+            node_limit = 1000 if skill == 0 else None
+            
+            result = engine.play(board, chess.engine.Limit(time=0.1, nodes=node_limit))
+            board.push(result.move)
+            
+            return jsonify({
+                "move": result.move.uci(),
+                "fen": board.fen(),
+                "evaluation": get_evaluation(board.fen())
+            })
+    except Exception as e:
+        print(f"PYTHON ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
 
     app.run(debug=True)

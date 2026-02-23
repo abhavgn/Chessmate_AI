@@ -16,6 +16,22 @@
         </div>
 
         <div id="board-container">
+            <div class="mode-settings" style="margin-bottom: 10px;">
+                <select id="game-mode" onchange="currentGameMode = this.value">
+                    <option value="analysis">Analysis Board</option>
+                    <option value="play">Play Against Engine</option>
+                </select>
+
+                <select id="skill-level">
+                    <option value="400">400 Elo (Novice)</option>
+                    <option value="800">800 Elo (Beginner)</option>
+                    <option value="1200">1200 Elo (Intermediate)</option>
+                    <option value="1600">1600 Elo (Advanced)</option>
+                    <option value="2000">2000 Elo (Expert)</option>
+                    <option value="2400">2400 Elo (Master)</option>
+                    <option value="2800">2800+ Elo (Super GM)</option>
+                </select>
+            </div>
             <h1>Chessmate AI</h1>
             <div id="myBoard" style="width: 400px"></div>
             <div class="controls">
@@ -36,25 +52,54 @@
     <script>
         var board = null;
         var game = new Chess();
+        var currentGameMode = 'analysis'; // Start in analysis mode by default
 
         function onDrop(source, target) {
             if (source === target) return 'snapback';
-            var move = source + target;
+            
+            // Check if move is legal in chess.js first
+            var move = game.move({
+                from: source,
+                to: target,
+                promotion: 'q'
+            });
+
+            if (move === null) return 'snapback';
 
             fetch('/move', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({move: move})
+                body: JSON.stringify({move: source + target})
             })
             .then(response => response.json())
             .then(data => {
-                if (data.status === 'success') {
-                    board.position(data.fen);
-                    game.load(data.fen); // Keeps the frontend move turn in sync
-                    updateEvalBar(data.evaluation);
-                } else {
+                // Use data.evaluation as per your app.py return key
+                updateEvalBar(data.evaluation);
+                
+                if (currentGameMode === 'play') {
+                    setTimeout(makeEngineMove, 500);
+                }
+            });
+        }
+
+        function makeEngineMove() {
+            // Get the value (400, 800, etc.) from the dropdown
+            const eloValue = document.getElementById('skill-level').value;
+
+            fetch('/engine_move', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ 
+                    fen: game.fen(), 
+                    level: parseInt(eloValue) // Sending the Elo number as "level"
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.move) {
+                    game.move(data.move, { sloppy: true }); 
                     board.position(game.fen()); 
-                    alert("Invalid: " + data.message);
+                    updateEvalBar(data.evaluation);
                 }
             });
         }
