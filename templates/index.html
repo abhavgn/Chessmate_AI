@@ -10,41 +10,52 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <div id="eval-bar-container">
-            <div id="eval-bar"></div>
-        </div>
-
-        <div id="board-container">
-            <div class="mode-settings" style="margin-bottom: 10px;">
-                <select id="game-mode" onchange="currentGameMode = this.value">
-                    <option value="analysis">Analysis Board</option>
-                    <option value="play">Play Against Engine</option>
-                </select>
-
-                <select id="skill-level">
-                    <option value="400">400 Elo (Novice)</option>
-                    <option value="800">800 Elo (Beginner)</option>
-                    <option value="1200">1200 Elo (Intermediate)</option>
-                    <option value="1600">1600 Elo (Advanced)</option>
-                    <option value="2000">2000 Elo (Expert)</option>
-                    <option value="2400">2400 Elo (Master)</option>
-                    <option value="2800">2800+ Elo (Super GM)</option>
-                </select>
+    <div class="main-container">
+        <div id="board-side">
+            <h2 style="color: white; text-align: center; margin-top: 0; font-family: sans-serif;">Chessmate AI</h2>
+            
+            <div class="board-eval-wrapper">
+                <div id="eval-bar-container">
+                    <div id="eval-bar"></div>
+                </div>
+                <div id="myBoard"></div>
             </div>
-            <h1>Chessmate AI</h1>
-            <div id="myBoard" style="width: 400px"></div>
-            <div class="controls">
-                <button id="explain-btn">Explain Last Move</button>
-                <button id="suggest-btn">Best Move?</button>
-                <button id="reset-btn" onclick="resetGame()">Reset Game</button>
+            
+            <div class="board-actions">
+                <button class="action-btn primary" id="explain-btn">Explain Move</button>
+                <button class="action-btn secondary" id="suggest-btn">Best Move?</button>
+                <button class="action-btn danger" onclick="resetGame()">Reset Game</button>
             </div>
         </div>
 
-        <div id="chat-sidebar">
-            <h3>AI Coach Chat</h3>
-            <div id="chat-history">
-                <p><strong>Coach:</strong> Hello James! Ready to analyze?</p>
+        <div id="sidebar">
+            <div class="mode-toggle">
+                <button class="mode-btn active" onclick="setMode('analysis', this)">Analysis</button>
+                <button class="mode-btn" onclick="setMode('play', this)">Play AI</button>
+            </div>
+
+            <div id="elo-panel" style="display: none;">
+                <p style="color: #64748b; font-size: 0.8rem; margin-bottom: 8px; font-weight: bold;">SELECT DIFFICULTY:</p>
+                <div class="elo-grid">
+                    <button class="elo-btn active" onclick="setElo(400, this)">400</button>
+                    <button class="elo-btn" onclick="setElo(800, this)">800</button>
+                    <button class="elo-btn" onclick="setElo(1200, this)">1200</button>
+                    <button class="elo-btn" onclick="setElo(1600, this)">1600</button>
+                    <button class="elo-btn" onclick="setElo(2000, this)">2000</button>
+                    <button class="elo-btn" onclick="setElo(2400, this)">2400</button>
+                    <button class="elo-btn" onclick="setElo(2800, this)">2800+</button>
+                </div>
+            </div>
+
+            <div class="chat-wrapper">
+                <div class="chat-header">🤖 AI Coach Chat</div>
+                <div id="chat-history">
+                    <div class="msg bot">Hello James! Ready to analyze?</div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" placeholder="Ask coach anything...">
+                    <button class="send-btn">Send</button>
+                </div>
             </div>
         </div>
     </div>
@@ -53,6 +64,29 @@
         var board = null;
         var game = new Chess();
         var currentGameMode = 'analysis'; // Start in analysis mode by default
+
+        let currentElo = 400; // Default Elo
+
+        function setMode(mode, element) {
+            currentGameMode = mode;
+            // Highlight selected button
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            element.classList.add('active');
+
+            // Show/Hide Elo panel
+            const eloPanel = document.getElementById('elo-panel');
+            eloPanel.style.display = (mode === 'play') ? 'block' : 'none';
+        }
+
+        function setElo(elo, element) {
+            currentElo = elo; // Update our tracker
+            
+            // UI Visual Toggle
+            document.querySelectorAll('.elo-btn').forEach(btn => btn.classList.remove('active'));
+            element.classList.add('active');
+            
+            console.log("Difficulty set to:", currentElo);
+        }
 
         function onDrop(source, target) {
             if (source === target) return 'snapback';
@@ -82,25 +116,18 @@
             });
         }
 
+        // When you call your engine move, make sure you send 'currentElo'
         function makeEngineMove() {
-            // Get the value (400, 800, etc.) from the dropdown
-            const eloValue = document.getElementById('skill-level').value;
-
-            fetch('/engine_move', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+            fetch("/engine_move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
-                    fen: game.fen(), 
-                    level: parseInt(eloValue) // Sending the Elo number as "level"
+                    level: currentElo // This matches your Python 'elo_rating = int(data.get("level", 400))'
                 })
             })
             .then(res => res.json())
             .then(data => {
-                if (data.move) {
-                    game.move(data.move, { sloppy: true }); 
-                    board.position(game.fen()); 
-                    updateEvalBar(data.evaluation);
-                }
+                // ... handle board update
             });
         }
 
