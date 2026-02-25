@@ -4,6 +4,8 @@ import chess
 
 import chess.engine
 
+import random
+
 
 
 app = Flask(__name__)
@@ -96,6 +98,10 @@ def engine_move():
     global board
     data = request.json
     
+    # --- CRASH FIX: Check if the game is already over! ---
+    if board.is_game_over():
+        return jsonify({"game_over": True, "fen": board.fen()})
+
     try:
         raw_level = data.get("level")
         elo_rating = int(raw_level) if raw_level is not None else 200
@@ -112,27 +118,45 @@ def engine_move():
     else:                    skill = 20
 
     try:
-        with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
-            engine.configure({"Skill Level": skill})
+        # --- THE TRUE 200 ELO FIX: The Blunder Injection ---
+        # 40% of the time, the 200 Elo bot will just pick a completely random legal move.
+        if elo_rating <= 200 and random.random() < 0.40:
+            random_move = random.choice(list(board.legal_moves))
+            board.push(random_move)
             
-        # FORCE these parameters to degrade the engine's intelligence
+            # We still quickly open the engine just to get the evaluation number
+            with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
+                info = engine.analyse(board, chess.engine.Limit(time=0.01))
+                score = info["score"].white()
+                if score.is_mate(): eval_val = f"M{score.mate()}"
+                else: eval_val = score.score() / 100.0 if score.score() is not None else 0.0
+                
+            return jsonify({
+                "move": random_move.uci(),
+                "fen": board.fen(),
+                "evaluation": eval_val
+            })
+
+        # --- NORMAL ENGINE LOGIC (For 400+ Elo, or the other 60% of 200 Elo moves) ---
+        with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
             engine.configure({
                 "Skill Level": skill,
-                "UCI_LimitStrength": "true",
-                "UCI_Elo": 200 if elo_rating <= 200 else elo_rating,
-                "Threads": 1,           # Slow it down
-                "Hash": 16              # Shrink its memory so it can't "remember" patterns
+                "Threads": 1,
+                "Hash": 16
             })
 
             if elo_rating <= 200:
-                # ADDED STRICT TIME LIMIT HERE
                 limit = chess.engine.Limit(time=0.01, depth=1)
             else:
                 node_limit = 1000 if skill == 0 else None
-                # ADDED STRICT TIME LIMIT HERE
                 limit = chess.engine.Limit(time=0.01, nodes=node_limit)
             
             result = engine.play(board, limit)
+            
+            # Safety net just in case
+            if result.move is None:
+                return jsonify({"game_over": True, "fen": board.fen()})
+                
             board.push(result.move)
 
             info = engine.analyse(board, chess.engine.Limit(time=0.01))
@@ -152,7 +176,7 @@ def engine_move():
     except Exception as e:
         print(f"PYTHON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
-
+    
 if __name__ == '__main__':
 
     app.run(debug=True)
