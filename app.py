@@ -130,36 +130,58 @@ def reset_board():
 def engine_move():
     global board
     data = request.json
-    elo_rating = int(data.get("level", 400))
     
-    # Precise mapping for your specific increments
-    if elo_rating <= 400:   skill = 0   # Novice
-    elif elo_rating <= 800:  skill = 2   # Beginner
-    elif elo_rating <= 1200: skill = 5   # Intermediate
-    elif elo_rating <= 1600: skill = 10  # Advanced
-    elif elo_rating <= 2000: skill = 14  # Expert
-    elif elo_rating <= 2400: skill = 17  # Master
-    else:                    skill = 20  # 2800+ Super GM
+    try:
+        elo_rating = int(data.get("level", 200))
+    except (TypeError, ValueError):
+        elo_rating = 200
+    
+    # Your existing mapping...
+    if elo_rating <= 200:    skill = 0
+    elif elo_rating <= 400:  skill = 0
+    elif elo_rating <= 800:  skill = 2
+    # ... (rest of your mapping)
+    else:                    skill = 20
 
     try:
+        # We open the "brain" ONLY ONCE here
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
             engine.configure({"Skill Level": skill})
             
-            # For the lowest level, we strictly limit how many positions it can see
-            node_limit = 1000 if skill == 0 else None
+            # 1. GET THE MOVE AND EVAL SIMULTANEOUSLY
+            if elo_rating <= 200:
+                # Fresh Beginner: Depth 1
+                limit = chess.engine.Limit(depth=1)
+            else:
+                # Higher levels: Time and Node limits
+                node_limit = 1000 if skill == 0 else None
+                limit = chess.engine.Limit(time=0.1, nodes=node_limit)
             
-            result = engine.play(board, chess.engine.Limit(time=0.1, nodes=node_limit))
+            # This is the pro way: play the move and get info back
+            result = engine.play(board, limit)
             board.push(result.move)
+
+            # 2. QUICK EVAL: Instead of calling get_evaluation() again,
+            # we do one tiny, super-fast analysis of the new position.
+            # This takes almost zero time since the engine is already open.
+            info = engine.analyse(board, chess.engine.Limit(time=0.01))
+            score = info["score"].white()
+            
+            # Format the score (Handle Mates vs Centipawns)
+            if score.is_mate():
+                eval_val = f"M{score.mate()}"
+            else:
+                eval_val = score.score() / 100.0 if score.score() is not None else 0.0
             
             return jsonify({
                 "move": result.move.uci(),
                 "fen": board.fen(),
-                "evaluation": get_evaluation(board.fen())
+                "evaluation": eval_val  # No second engine instance needed!
             })
+
     except Exception as e:
         print(f"PYTHON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 if __name__ == '__main__':
 

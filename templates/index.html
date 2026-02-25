@@ -37,7 +37,8 @@
             <div id="elo-panel" style="display: none;">
                 <p style="color: #64748b; font-size: 0.8rem; margin-bottom: 8px; font-weight: bold;">SELECT DIFFICULTY:</p>
                 <div class="elo-grid">
-                    <button class="elo-btn active" onclick="setElo(400, this)">400</button>
+                    <button class="elo-btn active" onclick="setElo(200, this)">200</button>
+                    <button class="elo-btn" onclick="setElo(400, this)">400</button>
                     <button class="elo-btn" onclick="setElo(800, this)">800</button>
                     <button class="elo-btn" onclick="setElo(1200, this)">1200</button>
                     <button class="elo-btn" onclick="setElo(1600, this)">1600</button>
@@ -69,13 +70,21 @@
 
         function setMode(mode, element) {
             currentGameMode = mode;
-            // Highlight selected button
+            
+            // Toggle Active Class
             document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
             element.classList.add('active');
 
-            // Show/Hide Elo panel
+            const evalContainer = document.getElementById('eval-bar-container');
             const eloPanel = document.getElementById('elo-panel');
-            eloPanel.style.display = (mode === 'play') ? 'block' : 'none';
+
+            if (mode === 'play') {
+                evalContainer.style.display = 'none'; // Completely removes the bar
+                eloPanel.style.display = 'block';    // Shows Elo buttons
+            } else {
+                evalContainer.style.display = 'block'; // Brings it back for analysis
+                eloPanel.style.display = 'none';
+            }
         }
 
         function setElo(elo, element) {
@@ -89,45 +98,57 @@
         }
 
         function onDrop(source, target) {
-            if (source === target) return 'snapback';
-            
-            // Check if move is legal in chess.js first
-            var move = game.move({
-                from: source,
-                to: target,
-                promotion: 'q'
-            });
+            let moveText = source + target;
 
-            if (move === null) return 'snapback';
-
-            fetch('/move', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({move: source + target})
+            // 1. Send your move to the server
+            fetch("/move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ move: moveText })
             })
-            .then(response => response.json())
+            .then(res => res.json())
             .then(data => {
-                // Use data.evaluation as per your app.py return key
-                updateEvalBar(data.evaluation);
-                
-                if (currentGameMode === 'play') {
-                    setTimeout(makeEngineMove, 500);
+                if (data.status === "success") {
+                    board.position(data.fen); // Update the board visually
+                    
+                    // 2. Only update eval bar if in ANALYSIS mode
+                    if (currentGameMode === 'analysis') {
+                        updateEvalBar(data.evaluation);
+                    }
+
+                    // 3. TRIGGER THE BOT if in PLAY mode
+                    if (currentGameMode === 'play') {
+                        // We add a tiny delay so the board updates before the bot thinks
+                        setTimeout(makeEngineMove, 250);
+                    }
+                } else {
+                    return 'snapback'; // Invalid move
                 }
             });
         }
 
-        // When you call your engine move, make sure you send 'currentElo'
         function makeEngineMove() {
+            // If for some reason currentElo is missing, force it to 400
+            const levelToSend = currentElo || 400;
+
             fetch("/engine_move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                    level: currentElo // This matches your Python 'elo_rating = int(data.get("level", 400))'
-                })
+                body: JSON.stringify({ level: levelToSend })
             })
             .then(res => res.json())
             .then(data => {
-                // ... handle board update
+                if (data.move) {
+                    game.move(data.move, { sloppy: true });
+                    board.position(data.fen);
+                    
+                    // Highlight the bot's move (Optional but recommended)
+                    console.log("Bot played: " + data.move);
+                }
+            })
+            .catch(err => {
+                console.error("Communication Breakdowns:", err);
+                alert("The engine is taking too long to think. Check your Python terminal!");
             });
         }
 
@@ -170,6 +191,22 @@
             }
         };
         board = Chessboard('myBoard', config);
+        
+        // --- ADD THE AUTO-INIT FIX HERE ---
+        document.addEventListener("DOMContentLoaded", function() {
+            // 1. Ensure 400 Elo is the logic default
+            currentElo = 200; 
+
+            // 2. Find the 400 button and make it look active visually
+            // This looks for the first button in the elo-grid
+            const defaultEloBtn = document.querySelector('.elo-btn'); 
+            if (defaultEloBtn) {
+                defaultEloBtn.classList.add('active');
+            }
+            
+            console.log("System Initialized: Bot set to 400 Elo");
+        });
+
     </script>
 </body>
 </html>

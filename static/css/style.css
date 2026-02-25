@@ -87,32 +87,32 @@ body {
 .mode-btn.active { background: #2ecc71; color: white; }
 
 /* Elo Buttons */
-.elo-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr); /* 4 buttons per row */
-    gap: 8px;
-    margin-bottom: 15px;
+#elo-panel {
+    margin-top: 10px;
+    padding: 10px;
+    background: rgba(0,0,0,0.1);
+    border-radius: 8px;
 }
 
-/* Make the last button (2800) span two columns if it's the 7th one, 
-   or just keep it neat: */
+.elo-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr); /* 4 columns per row */
+    gap: 6px;
+}
+
 .elo-btn {
-    padding: 10px 5px;
+    padding: 8px 2px;
+    font-size: 0.7rem; /* Compact for 7 buttons */
     background: #e2e8f0;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    font-weight: bold;
+    border: none;
+    border-radius: 4px;
     cursor: pointer;
-    color: #334155;
-    font-size: 0.75rem; /* Slightly smaller text to fit 7 buttons */
-    transition: all 0.2s ease;
+    font-weight: bold;
 }
 
 .elo-btn.active {
     background: #27ae60;
     color: white;
-    border-color: #1e8449;
-    box-shadow: 0 2px 8px rgba(39, 174, 96, 0.3);
 }
 
 /* Modern Chatbox */
