@@ -14,12 +14,18 @@
         <div id="board-side">
             <h2 style="color: white; text-align: center; margin-top: 0; font-family: sans-serif;">Chessmate AI</h2>
             
-            <div class="board-eval-wrapper">
+            <div class="board-eval-wrapper" style="position: relative;">
                 <div id="eval-bar-container">
                     <div id="eval-bar"></div>
                 </div>
                 <div id="myBoard"></div>
-            </div>
+
+                <div id="game-over-overlay">
+                    <h2 id="end-title">Checkmate!</h2>
+                    <p id="end-subtitle">White Wins</p>
+                    <button class="action-btn danger" onclick="resetGame()" style="margin-top: 10px;">Play Again</button>
+                </div>
+                </div>
             
             <div class="board-actions">
                 <button class="action-btn primary" id="explain-btn">Explain Move</button>
@@ -97,6 +103,27 @@
             console.log("Difficulty set to:", currentElo);
         }
 
+        function checkGameOver() {
+            if (game.game_over()) {
+                let title = "Game Over";
+                let subtitle = "";
+
+                if (game.in_checkmate()) {
+                    title = "Checkmate!";
+                    subtitle = game.turn() === 'w' ? "Black Wins" : "White Wins";
+                } else if (game.in_draw()) {
+                    title = "Draw";
+                    if (game.in_stalemate()) subtitle = "Stalemate";
+                    else if (game.in_threefold_repetition()) subtitle = "Threefold Repetition";
+                    else subtitle = "Insufficient Material";
+                }
+
+                $('#end-title').text(title);
+                $('#end-subtitle').text(subtitle);
+                $('#game-over-overlay').css('display', 'flex'); // Shows the overlay
+            }
+        }
+
         function onDrop(source, target) {
             // FIX 1: If source and target are the same, do nothing
             if (source === target) return;
@@ -115,24 +142,54 @@
                 body: JSON.stringify({ move: moveText })
             })
             .then(res => res.json())
+        
             .then(data => {
                 if (data.status === "success") {
-                    board.position(data.fen); // Update the board visually
+                    board.position(data.fen); // 1. Update the board visually
                     
-                    // 2. Only update eval bar if in ANALYSIS mode
+                    // 2. TELL THE JS LOGIC THE MOVE HAPPENED (You were missing this!)
+                    game.move({ from: source, to: target, promotion: 'q' }); 
+                    
+                    // 3. NOW CHECK FOR HIGHLIGHTS
+                    updateCheckHighlight();
+                    checkGameOver();
+
+                    // 4. Only update eval bar if in ANALYSIS mode
                     if (currentGameMode === 'analysis') {
                         updateEvalBar(data.evaluation);
                     }
 
-                    // 3. TRIGGER THE BOT if in PLAY mode
+                    // 5. TRIGGER THE BOT if in PLAY mode
                     if (currentGameMode === 'play') {
-                        // We add a tiny delay so the board updates before the bot thinks
                         setTimeout(makeEngineMove, 250);
                     }
                 } else {
                     return 'snapback'; // Invalid move
                 }
             });
+        }
+
+        function updateCheckHighlight() {
+            // 1. Remove the highlight from everyone first
+            $('.square-55d63').removeClass('highlight-check');
+
+            // 2. Only proceed if someone is actually in check
+            if (game.in_check()) {
+                const boardLayout = game.board();
+                const turn = game.turn(); // 'w' or 'b'
+
+                // 3. Search the board for the King of the current turn
+                for (let i = 0; i < 8; i++) {
+                    for (let j = 0; j < 8; j++) {
+                        const piece = boardLayout[i][j];
+                        if (piece && piece.type === 'k' && piece.color === turn) {
+                            // Convert row/column to chess square (e.g., e1)
+                            const square = String.fromCharCode(97 + j) + (8 - i);
+                            $('#myBoard .square-' + square).addClass('highlight-check');
+                        }
+                    }
+                }
+            }
         }
 
         function makeEngineMove() {
@@ -150,6 +207,10 @@
                     game.move(data.move, { sloppy: true });
                     board.position(data.fen);
                     
+                    // --- ADD THIS LINE HERE ---
+                    updateCheckHighlight();
+                    checkGameOver();
+
                     // Highlight the bot's move (Optional but recommended)
                     console.log("Bot played: " + data.move);
                 }
@@ -179,6 +240,8 @@
                 board.start();
                 game.reset();
                 updateEvalBar(0);
+                $('#game-over-overlay').hide(); // <--- HIDE THE POPUP
+                $('.square-55d63').removeClass('highlight-check'); // Clear red glow
             });
         }
 
