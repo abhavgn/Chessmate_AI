@@ -25,6 +25,16 @@
                     <p id="end-subtitle">White Wins</p>
                     <button class="action-btn danger" onclick="resetGame()" style="margin-top: 10px;">Play Again</button>
                 </div>
+                
+                <div id="promotion-overlay">
+                    <div class="promotion-menu">
+                        <div class="promo-piece" onclick="choosePromotion('q')">♕</div>
+                        <div class="promo-piece" onclick="choosePromotion('r')">♖</div>
+                        <div class="promo-piece" onclick="choosePromotion('b')">♗</div>
+                        <div class="promo-piece" onclick="choosePromotion('n')">♘</div>
+                    </div>
+                </div>
+
                 </div>
             
             <div class="board-actions">
@@ -54,6 +64,11 @@
                 </div>
             </div>
 
+            <div class="move-history-wrapper">
+                <div class="move-history-header">📜 Move History</div>
+                <div id="move-list" class="move-grid">
+                    </div>
+            </div>
             <div class="chat-wrapper">
                 <div class="chat-header">🤖 AI Coach Chat</div>
                 <div id="chat-history">
@@ -124,6 +139,26 @@
             }
         }
 
+        function updateMoveList() {
+            const moveListElement = document.getElementById('move-list');
+            const history = game.history();
+            moveListElement.innerHTML = ''; // Clear and rebuild
+
+            for (let i = 0; i < history.length; i += 2) {
+                const turnNum = Math.floor(i / 2) + 1;
+                const whiteMove = history[i];
+                const blackMove = history[i + 1] ? history[i + 1] : '';
+
+                moveListElement.innerHTML += `
+                    <div class="move-num">${turnNum}.</div>
+                    <div class="move-val">${whiteMove}</div>
+                    <div class="move-val">${blackMove}</div>
+                `;
+            }
+            // Auto-scroll to the bottom
+            moveListElement.scrollTop = moveListElement.scrollHeight;
+        }
+
         function onDrop(source, target) {
             // FIX 1: If source and target are the same, do nothing
             if (source === target) return;
@@ -132,41 +167,68 @@
             if (currentGameMode === 'play' && game.turn() === 'b') {
                 return 'snapback';
             }
-            
-            let moveText = source + target;
 
-            // 1. Send your move to the server
+            // --- NEW PROMOTION CHECK START ---
+            // Check if this is a pawn reaching the back rank
+            const piece = game.get(source);
+            if (piece && piece.type === 'p' && (target[1] === '8' || target[1] === '1')) {
+                // It IS a promotion. Pause and show menu.
+                pendingMove = { from: source, to: target };
+                document.getElementById('promotion-overlay').style.display = 'flex';
+                return; // Stop here! The choosePromotion() function will take over.
+            }
+            // --- NEW PROMOTION CHECK END ---
+
+            // If it's a normal move, we run your original code:
+            sendMoveToServer(source + target, source, target);
+        }
+
+        // Since we use the same logic in two places now, 
+        // let's put your fetch logic in its own function so we don't repeat it.
+        function sendMoveToServer(moveText, source, target) {
             fetch("/move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ move: moveText })
             })
             .then(res => res.json())
-        
             .then(data => {
                 if (data.status === "success") {
-                    board.position(data.fen); // 1. Update the board visually
+                    board.position(data.fen); 
                     
-                    // 2. TELL THE JS LOGIC THE MOVE HAPPENED (You were missing this!)
-                    game.move({ from: source, to: target, promotion: 'q' }); 
+                    // Note: the moveText might be 5 chars (e7e8q) if coming from the menu
+                    const promoChar = moveText.length === 5 ? moveText[4] : 'q';
+                    game.move({ from: source, to: target, promotion: promoChar }); 
                     
-                    // 3. NOW CHECK FOR HIGHLIGHTS
+                    updateMoveList();
                     updateCheckHighlight();
                     checkGameOver();
 
-                    // 4. Only update eval bar if in ANALYSIS mode
                     if (currentGameMode === 'analysis') {
                         updateEvalBar(data.evaluation);
                     }
 
-                    // 5. TRIGGER THE BOT if in PLAY mode
                     if (currentGameMode === 'play') {
                         setTimeout(makeEngineMove, 250);
                     }
                 } else {
-                    return 'snapback'; // Invalid move
+                    board.position(game.fen()); // Reset board if server rejects it
+                    return 'snapback'; 
                 }
             });
+        }
+
+        // Update your choosePromotion function to use this new shared function
+        function choosePromotion(pieceType) {
+            if (!pendingMove) return;
+            
+            const moveText = pendingMove.from + pendingMove.to + pieceType;
+            document.getElementById('promotion-overlay').style.display = 'none';
+            
+            // Pass the info to our shared sender
+            sendMoveToServer(moveText, pendingMove.from, pendingMove.to);
+            
+            pendingMove = null;
         }
 
         function updateCheckHighlight() {
@@ -208,6 +270,7 @@
                     board.position(data.fen);
                     
                     // --- ADD THIS LINE HERE ---
+                    updateMoveList();
                     updateCheckHighlight();
                     checkGameOver();
 
@@ -239,6 +302,7 @@
             .then(data => {
                 board.start();
                 game.reset();
+                updateMoveList();
                 updateEvalBar(0);
                 $('#game-over-overlay').hide(); // <--- HIDE THE POPUP
                 $('.square-55d63').removeClass('highlight-check'); // Clear red glow
