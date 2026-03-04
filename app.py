@@ -6,17 +6,34 @@ import chess.engine
 
 import random
 
+import os
+
+from google import genai
+
+from google.genai import types
+
 
 
 app = Flask(__name__)
 
 
 
-# Initialize a global board state
+
+# --- GEMINI AI SETUP (NEW SDK) ---
+# --- Initialize a Global Board State
+# Replace with your newly generated key later!
+GOOGLE_API_KEY = "AIzaSyC0VtmX-hSf2lOAYmC8e3-Wy0yQNeA7J_Q"
+client = genai.Client(api_key=GOOGLE_API_KEY)
+
+system_instruction = (
+    "You are a Grandmaster chess coach talking to your student. "
+    "Explain the reasoning behind the last move played. "
+    "Use the provided Stockfish evaluation difference to determine if it was a good move, an inaccuracy, or a blunder. "
+    "Keep your explanation conversational, encouraging, and UNDER 3 sentences. "
+    "Do not output raw FEN strings to the user, just talk about the strategy in plain English."
+)
 
 board = chess.Board()
-
-
 
 @app.route('/')
 
@@ -177,6 +194,64 @@ def engine_move():
         print(f"PYTHON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
     
+
+@app.route('/explain_move', methods=['POST'])
+def explain_move():
+    global board
+    
+    # If no moves have been made yet, we can't explain anything!
+    if len(board.move_stack) == 0:
+        return jsonify({"status": "error", "message": "Make a move first so I can analyze it!"})
+    
+    try:
+        # 1. Get CURRENT state
+        current_fen = board.fen()
+        current_eval = get_evaluation(current_fen)
+        
+        # 2. Get PREVIOUS state
+        # Temporarily undo the move to see what the board looked like before
+        last_move = board.pop()
+        san_move = board.san(last_move) # e.g., gets "Nf3" instead of "g1f3"
+        
+        prev_fen = board.fen()
+        prev_eval = get_evaluation(prev_fen)
+        
+        # Put the move back so we don't ruin the game!
+        board.push(last_move)
+        
+        # 3. Construct the prompt with the mathematical truth from Stockfish
+        prompt = f"""
+        Previous Position (FEN): {prev_fen}
+        Previous Evaluation: {prev_eval} (Positive = White winning, Negative = Black winning)
+        Move Played: {san_move}
+        New Position (FEN): {current_fen}
+        New Evaluation: {current_eval}
+        
+        Please explain this move to me.
+        """
+        
+        # 4. Call Google Gemini (using the new SDK)
+        response = client.models.generate_content(
+            model='gemini-3-flash-preview',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.7,
+                max_output_tokens=5000,
+            )
+        )
+        
+        # 5. Send it back to the frontend chatbox
+        return jsonify({"status": "success", "explanation": response.text})
+
+    except Exception as e:
+        print(f"!!! GEMINI COACH ERROR: {str(e)}")
+        # Safety catch: If we popped the move but an error happened, put it back!
+        if len(board.move_stack) < len(board.move_stack) + 1 and 'last_move' in locals():
+            try: board.push(last_move) 
+            except: pass
+        return jsonify({"status": "error", "message": "My brain disconnected from Google. Check the console!"})
+
 if __name__ == '__main__':
 
     app.run(debug=True)

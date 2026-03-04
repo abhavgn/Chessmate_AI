@@ -309,6 +309,64 @@
             });
         }
 
+        // --- AI COACH CHAT LOGIC ---
+
+        // Helper function to add messages to the chat box
+        function appendChatMessage(sender, text) {
+            const chatHistory = document.getElementById('chat-history');
+            const msgDiv = document.createElement('div');
+            
+            // Apply basic styling so it looks like a chat message
+            msgDiv.style.padding = '10px';
+            msgDiv.style.borderRadius = '8px';
+            msgDiv.style.marginBottom = '10px';
+            msgDiv.style.fontSize = '0.9rem';
+            msgDiv.style.lineHeight = '1.4';
+
+            if (sender === 'bot') {
+                msgDiv.innerHTML = `<strong>🤖 Coach:</strong> ${text}`;
+                msgDiv.style.background = '#f1f5f9'; // Light gray
+                msgDiv.style.color = '#334155';
+            } else {
+                msgDiv.innerHTML = `<strong>👤 You:</strong> ${text}`;
+                msgDiv.style.background = '#e0f2fe'; // Light blue
+                msgDiv.style.color = '#0369a1';
+            }
+            
+            chatHistory.appendChild(msgDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight; // Auto-scroll to bottom
+        }
+
+        // Action for the Explain Move Button
+        document.getElementById('explain-btn').addEventListener('click', function() {
+            appendChatMessage("user", "Can you explain the last move?");
+            
+            // Create a loading message with a specific ID
+            const chatHistory = document.getElementById('chat-history');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = "coach-loading"; // <--- Add this
+            loadingDiv.className = "msg bot";
+            loadingDiv.innerHTML = "<em>Analyzing the position...</em>";
+            chatHistory.appendChild(loadingDiv);
+
+            fetch("/explain_move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" }
+            })
+            .then(res => res.json())
+            .then(data => {
+                // Remove the loading message specifically by ID
+                const loader = document.getElementById('coach-loading');
+                if (loader) loader.remove();
+
+                if (data.status === "success") {
+                    appendChatMessage("bot", data.explanation);
+                } else {
+                    appendChatMessage("bot", "Oops: " + data.message);
+                }
+            })
+        });
+
         var config = {
             draggable: true,
             position: 'start',
