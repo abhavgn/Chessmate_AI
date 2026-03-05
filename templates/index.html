@@ -85,14 +85,11 @@
     <script>
         var board = null;
         var game = new Chess();
-        var currentGameMode = 'analysis'; // Start in analysis mode by default
-
-        let currentElo = 400; // Default Elo
+        var currentGameMode = 'analysis'; 
+        let currentElo = 400; 
 
         function setMode(mode, element) {
             currentGameMode = mode;
-            
-            // Toggle Active Class
             document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
             element.classList.add('active');
 
@@ -100,22 +97,18 @@
             const eloPanel = document.getElementById('elo-panel');
 
             if (mode === 'play') {
-                evalContainer.style.display = 'none'; // Completely removes the bar
-                eloPanel.style.display = 'block';    // Shows Elo buttons
+                evalContainer.style.display = 'none'; 
+                eloPanel.style.display = 'block';    
             } else {
-                evalContainer.style.display = 'block'; // Brings it back for analysis
+                evalContainer.style.display = 'block'; 
                 eloPanel.style.display = 'none';
             }
         }
 
         function setElo(elo, element) {
-            currentElo = elo; // Update our tracker
-            
-            // UI Visual Toggle
+            currentElo = elo; 
             document.querySelectorAll('.elo-btn').forEach(btn => btn.classList.remove('active'));
             element.classList.add('active');
-            
-            console.log("Difficulty set to:", currentElo);
         }
 
         function checkGameOver() {
@@ -135,14 +128,14 @@
 
                 $('#end-title').text(title);
                 $('#end-subtitle').text(subtitle);
-                $('#game-over-overlay').css('display', 'flex'); // Shows the overlay
+                $('#game-over-overlay').css('display', 'flex'); 
             }
         }
 
         function updateMoveList() {
             const moveListElement = document.getElementById('move-list');
             const history = game.history();
-            moveListElement.innerHTML = ''; // Clear and rebuild
+            moveListElement.innerHTML = ''; 
 
             for (let i = 0; i < history.length; i += 2) {
                 const turnNum = Math.floor(i / 2) + 1;
@@ -155,36 +148,23 @@
                     <div class="move-val">${blackMove}</div>
                 `;
             }
-            // Auto-scroll to the bottom
             moveListElement.scrollTop = moveListElement.scrollHeight;
         }
 
         function onDrop(source, target) {
-            // FIX 1: If source and target are the same, do nothing
             if (source === target) return;
+            if (currentGameMode === 'play' && game.turn() === 'b') return 'snapback';
 
-            // FIX 2: If it's the Bot's turn, don't let the human move!
-            if (currentGameMode === 'play' && game.turn() === 'b') {
-                return 'snapback';
-            }
-
-            // --- NEW PROMOTION CHECK START ---
-            // Check if this is a pawn reaching the back rank
             const piece = game.get(source);
             if (piece && piece.type === 'p' && (target[1] === '8' || target[1] === '1')) {
-                // It IS a promotion. Pause and show menu.
                 pendingMove = { from: source, to: target };
                 document.getElementById('promotion-overlay').style.display = 'flex';
-                return; // Stop here! The choosePromotion() function will take over.
+                return; 
             }
-            // --- NEW PROMOTION CHECK END ---
 
-            // If it's a normal move, we run your original code:
             sendMoveToServer(source + target, source, target);
         }
 
-        // Since we use the same logic in two places now, 
-        // let's put your fetch logic in its own function so we don't repeat it.
         function sendMoveToServer(moveText, source, target) {
             fetch("/move", {
                 method: "POST",
@@ -196,7 +176,6 @@
                 if (data.status === "success") {
                     board.position(data.fen); 
                     
-                    // Note: the moveText might be 5 chars (e7e8q) if coming from the menu
                     const promoChar = moveText.length === 5 ? moveText[4] : 'q';
                     game.move({ from: source, to: target, promotion: promoChar }); 
                     
@@ -212,40 +191,30 @@
                         setTimeout(makeEngineMove, 250);
                     }
                 } else {
-                    board.position(game.fen()); // Reset board if server rejects it
+                    board.position(game.fen()); 
                     return 'snapback'; 
                 }
             });
         }
 
-        // Update your choosePromotion function to use this new shared function
         function choosePromotion(pieceType) {
             if (!pendingMove) return;
-            
             const moveText = pendingMove.from + pendingMove.to + pieceType;
             document.getElementById('promotion-overlay').style.display = 'none';
-            
-            // Pass the info to our shared sender
             sendMoveToServer(moveText, pendingMove.from, pendingMove.to);
-            
             pendingMove = null;
         }
 
         function updateCheckHighlight() {
-            // 1. Remove the highlight from everyone first
             $('.square-55d63').removeClass('highlight-check');
-
-            // 2. Only proceed if someone is actually in check
             if (game.in_check()) {
                 const boardLayout = game.board();
-                const turn = game.turn(); // 'w' or 'b'
+                const turn = game.turn(); 
 
-                // 3. Search the board for the King of the current turn
                 for (let i = 0; i < 8; i++) {
                     for (let j = 0; j < 8; j++) {
                         const piece = boardLayout[i][j];
                         if (piece && piece.type === 'k' && piece.color === turn) {
-                            // Convert row/column to chess square (e.g., e1)
                             const square = String.fromCharCode(97 + j) + (8 - i);
                             $('#myBoard .square-' + square).addClass('highlight-check');
                         }
@@ -255,7 +224,6 @@
         }
 
         function makeEngineMove() {
-            // If for some reason currentElo is missing, force it to 400
             const levelToSend = currentElo || 400;
 
             fetch("/engine_move", {
@@ -269,18 +237,13 @@
                     game.move(data.move, { sloppy: true });
                     board.position(data.fen);
                     
-                    // --- ADD THIS LINE HERE ---
                     updateMoveList();
                     updateCheckHighlight();
                     checkGameOver();
-
-                    // Highlight the bot's move (Optional but recommended)
-                    console.log("Bot played: " + data.move);
                 }
             })
             .catch(err => {
                 console.error("Communication Breakdowns:", err);
-                alert("The engine is taking too long to think. Check your Python terminal!");
             });
         }
 
@@ -289,7 +252,6 @@
             if (typeof evalValue === 'string' && evalValue.startsWith('M')) {
                 bar.style.height = evalValue.includes('-') ? '0%' : '100%';
             } else {
-                // Calculation for the bar height based on centipawns
                 let percentage = 50 + (evalValue * 10);
                 percentage = Math.max(5, Math.min(95, percentage)); 
                 bar.style.height = percentage + '%';
@@ -304,65 +266,110 @@
                 game.reset();
                 updateMoveList();
                 updateEvalBar(0);
-                $('#game-over-overlay').hide(); // <--- HIDE THE POPUP
-                $('.square-55d63').removeClass('highlight-check'); // Clear red glow
+                $('#game-over-overlay').hide(); 
+                $('.square-55d63').removeClass('highlight-check'); 
             });
         }
 
-        // --- AI COACH CHAT LOGIC ---
+        // --- AI COACH CHAT LOGIC WITH TYPEWRITER EFFECT ---
 
-        // Helper function to add messages to the chat box
-        function appendChatMessage(sender, text) {
+        function appendChatMessage(sender, text, animate = false) {
             const chatHistory = document.getElementById('chat-history');
             const msgDiv = document.createElement('div');
             
-            // Apply basic styling so it looks like a chat message
             msgDiv.style.padding = '10px';
             msgDiv.style.borderRadius = '8px';
             msgDiv.style.marginBottom = '10px';
             msgDiv.style.fontSize = '0.9rem';
             msgDiv.style.lineHeight = '1.4';
+            msgDiv.style.whiteSpace = 'pre-wrap'; // Keeps formatting neat
+
+            const prefix = sender === 'bot' ? '<strong>🤖 Coach:</strong> ' : '<strong>👤 You:</strong> ';
 
             if (sender === 'bot') {
-                msgDiv.innerHTML = `<strong>🤖 Coach:</strong> ${text}`;
-                msgDiv.style.background = '#f1f5f9'; // Light gray
+                msgDiv.style.background = '#f1f5f9'; 
                 msgDiv.style.color = '#334155';
+
+                // --- Retro Typewriter Effect Logic ---
+                if (animate) {
+                    msgDiv.innerHTML = prefix;
+                    chatHistory.appendChild(msgDiv);
+                    
+                    let i = 0;
+                    // Remove markdown bolding (**) for a cleaner chat interface
+                    const cleanText = text.replace(/\*\*/g, ''); 
+                    
+                    function typeWriter() {
+                        if (i < cleanText.length) {
+                            msgDiv.innerHTML += cleanText.charAt(i);
+                            i++;
+                            chatHistory.scrollTop = chatHistory.scrollHeight; // Auto-scroll
+                            setTimeout(typeWriter, 20); // 20ms delay per character
+                        }
+                    }
+                    typeWriter();
+                    return; // Exit here so it doesn't print instantly below
+                }
             } else {
-                msgDiv.innerHTML = `<strong>👤 You:</strong> ${text}`;
-                msgDiv.style.background = '#e0f2fe'; // Light blue
+                msgDiv.style.background = '#e0f2fe'; 
                 msgDiv.style.color = '#0369a1';
             }
             
+            // Standard instant load (used for User messages)
+            msgDiv.innerHTML = prefix + text;
             chatHistory.appendChild(msgDiv);
-            chatHistory.scrollTop = chatHistory.scrollHeight; // Auto-scroll to bottom
+            chatHistory.scrollTop = chatHistory.scrollHeight; 
         }
 
-        // Action for the Explain Move Button
+        // 1. Explain Move Button Action
         document.getElementById('explain-btn').addEventListener('click', function() {
-            appendChatMessage("user", "Can you explain the last move?");
+            appendChatMessage("user", "Can you explain my last move?");
             
-            // Create a loading message with a specific ID
             const chatHistory = document.getElementById('chat-history');
             const loadingDiv = document.createElement('div');
-            loadingDiv.id = "coach-loading"; // <--- Add this
+            loadingDiv.id = "coach-loading"; 
             loadingDiv.className = "msg bot";
-            loadingDiv.innerHTML = "<em>Analyzing the position...</em>";
+            loadingDiv.innerHTML = "<em>Analyzing your move...</em>";
             chatHistory.appendChild(loadingDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
 
             fetch("/explain_move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                // ✅ FIX: Send the board state and history to the backend
+                body: JSON.stringify({ 
+                    mode: currentGameMode,
+                    fen: game.fen(),
+                    history: game.history()
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                const loader = document.getElementById('coach-loading');
+                if (loader) loader.remove();
+
+                if (data.status === "success") {
+                    appendChatMessage("bot", data.explanation, true); // true = Typewriter effect!
+                } else {
+                    appendChatMessage("bot", "Oops: " + data.message, true);
+                }
+            })
+        });
+
+        // 2. Best Move / Suggestion Action
+        document.getElementById('suggest-btn').addEventListener('click', function() {
+            appendChatMessage("user", "What is the best move here?");
+            
+            fetch("/best_move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" }
             })
             .then(res => res.json())
             .then(data => {
-                // Remove the loading message specifically by ID
-                const loader = document.getElementById('coach-loading');
-                if (loader) loader.remove();
-
                 if (data.status === "success") {
-                    appendChatMessage("bot", data.explanation);
+                    appendChatMessage("bot", `Stockfish calculated that the best move in this position is ${data.move}.`, true);
                 } else {
-                    appendChatMessage("bot", "Oops: " + data.message);
+                    appendChatMessage("bot", "Oops: " + data.message, true);
                 }
             })
         });
@@ -385,20 +392,15 @@
         };
         board = Chessboard('myBoard', config);
         
-        // 3. ADD THIS IMMEDIATELY AFTER board = Chessboard...
         $(document).ready(function() {
-            // FORCE PYTHON TO RESET BOARD ON REFRESH
             fetch('/reset', { method: 'POST' })
             .then(res => res.json())
             .then(data => {
-                console.log("Python Board Reset for new session");
-                // Now that Python is ready, set your default Elo
-                currentElo = 200;
+                currentElo = 400;
                 $('.elo-btn').removeClass('active');
-                $('.elo-btn').filter(function() { return $(this).text().trim() === '200'; }).addClass('active');
+                $('.elo-btn').filter(function() { return $(this).text().trim() === '400'; }).addClass('active');
             });
         });
-
     </script>
 </body>
 </html>
