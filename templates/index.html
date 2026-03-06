@@ -86,7 +86,18 @@
         var board = null;
         var game = new Chess();
         var currentGameMode = 'analysis'; 
-        let currentElo = 400; 
+        let currentElo = 400;
+
+        // 1. Initialize the board configuration
+        var config = {
+            draggable: true,      // Allows you to drag pieces
+            position: 'start',    // Sets the board to the starting position
+            onDrop: onDrop,       // Links to your existing move logic
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' 
+            // ^ This uses the default online images so you don't have to worry about local paths yet
+        };
+
+        board = Chessboard('myBoard', config);
 
         function setMode(mode, element) {
             currentGameMode = mode;
@@ -360,45 +371,35 @@
         document.getElementById('suggest-btn').addEventListener('click', function() {
             appendChatMessage("user", "What is the best move here?");
             
+            const chatHistory = document.getElementById('chat-history');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = "coach-loading"; 
+            loadingDiv.className = "msg bot";
+            loadingDiv.innerHTML = "<em>Calculating the best line...</em>";
+            chatHistory.appendChild(loadingDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
             fetch("/best_move", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" }
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fen: game.fen() }) // <--- Send the actual FEN!
             })
             .then(res => res.json())
             .then(data => {
+                const loader = document.getElementById('coach-loading');
+                if (loader) loader.remove();
+
                 if (data.status === "success") {
-                    appendChatMessage("bot", `Stockfish calculated that the best move in this position is ${data.move}.`, true);
+                    const combinedMessage = `I recommend ${data.move}.\n\n${data.explanation}`;
+                    appendChatMessage("bot", combinedMessage, true); // true = Typewriter effect!
                 } else {
                     appendChatMessage("bot", "Oops: " + data.message, true);
                 }
             })
-        });
-
-        var config = {
-            draggable: true,
-            position: 'start',
-            onDrop: onDrop,
-            pieceTheme: function (piece) {
-                var color = (piece.search(/w/) !== -1) ? 'white' : 'black';
-                var type = '';
-                if (piece.search(/P/) !== -1) type = 'pawn';
-                if (piece.search(/R/) !== -1) type = 'rook';
-                if (piece.search(/N/) !== -1) type = 'knight';
-                if (piece.search(/B/) !== -1) type = 'bishop';
-                if (piece.search(/Q/) !== -1) type = 'queen';
-                if (piece.search(/K/) !== -1) type = 'king';
-                return '/static/css/img/' + color + '-' + type + '.png';
-            }
-        };
-        board = Chessboard('myBoard', config);
-        
-        $(document).ready(function() {
-            fetch('/reset', { method: 'POST' })
-            .then(res => res.json())
-            .then(data => {
-                currentElo = 400;
-                $('.elo-btn').removeClass('active');
-                $('.elo-btn').filter(function() { return $(this).text().trim() === '400'; }).addClass('active');
+            .catch(err => {
+                const loader = document.getElementById('coach-loading');
+                if (loader) loader.remove();
+                appendChatMessage("bot", "My connection to the engine dropped.", true);
             });
         });
     </script>

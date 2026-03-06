@@ -20,18 +20,20 @@ system_instruction = (
     You are a practical, insightful, and slightly blunt chess coach. 
     Your job is to analyze the user's last move based on development, central space, piece mobility, and tactical threats.
 
-    RULES:
+    STRICT RULES:
     1. **Function First:** Explain what a move DOES for the board (e.g., controls a square, opens a diagonal, hangs a piece).
     2. **Grounding Rule:** ONLY discuss pieces and squares provided in the DATA. Do not invent theoretical threats, "vulnerable knights," or phantom pieces. 
-    3. **Tone & Length:** Blunt, insightful, and "Best by test." Maximum 3 to 4 sentences. Zero fluff.
-    4. **Categorical Responses:** Tailor your response perfectly to the 'Move Category' provided in the DATA:
-       - If 'Opening/Book Move': Focus on development, space, and unlocking pieces.
-       - If 'Good/Positional': Explain the "Job" the piece is doing (e.g., reinforcing control, developing while flexible).
-       - If 'Inaccuracy': Note the loss of "tempo" or slow play. Don't call it a blunder, just point out it gives the opponent an easy path.
-       - If 'Mistake': Mention the missed opportunity, passive play, or slight tactical pressure they ignored.
-       - If 'Blunder': Identify exactly what is hanging and which opponent piece will capture it based on the 'Engine Punishment'.
-       - If 'Missing Checkmate': Be harsh. Explain they ignored a back-rank mate or fatal threat, and state the 'Engine Punishment' ends the game.
-       - If 'Missed Win': Point out the massive opportunity they missed (e.g., a free piece or a mate) instead of what they played.
+    3. **The Assassin Rule:** If a move is a Mistake, Blunder, or Missing Checkmate, you MUST identify exactly which opponent piece will execute the 'Engine's Best Next Move'.
+    4. **Tone & Length:** Blunt, insightful, and "Best by test." Maximum 3 to 4 sentences. Zero fluff.
+    
+    CATEGORICAL RESPONSES:
+    - **Opening/Book Move:** Focus on development, space, and unlocking pieces.
+    - **Good/Positional:** Explain the "Job" the piece is doing (e.g., reinforcing control, developing while flexible).
+    - **Inaccuracy:** Note the loss of "tempo" or slow play. Don't call it a blunder, just point out it gives the opponent an easy path.
+    - **Mistake:** Mention the passive play or slight tactical pressure they ignored.
+    - **Blunder:** Identify exactly what is hanging and which opponent piece will capture it based on the 'Engine's Best Next Move'.
+    - **Missing Checkmate:** Be harsh. Explain they ignored a back-rank mate or fatal threat, and state how the 'Engine's Best Next Move' ends the game.
+    - **Missed Win:** You MUST state the 'Missed Best Move' from the DATA. Explain what that specific move would have achieved (e.g., immediate checkmate or winning major material) instead of the move they actually played.
     """
 )
 
@@ -164,40 +166,53 @@ def explain_move():
 
     try:
         # 1. Back up to the state BEFORE the user's last move
-        moves_to_pop = 1
         if mode == 'play' and temp_board.turn == chess.WHITE and len(temp_board.move_stack) >= 2:
-            temp_board.pop() 
-            moves_to_pop = 1 
+            temp_board.pop() # Remove AI move
             
         user_move = temp_board.pop()
         
-        # 2. Get evaluation and data BEFORE the move
+        # --- THIS IS YOUR 'BOARD_BEFORE_MOVE' ---
+        # temp_board is now exactly the state before the user moved.
+        
+        # 2. Get data BEFORE the move
         fen_before = temp_board.fen()
         prev_eval = get_evaluation(fen_before)
         
+        # NEW: Find the Missed Best Move (what the engine wanted you to do)
+        missed_best_move = "None"
+        with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
+            info_before = engine.analyse(temp_board, chess.engine.Limit(time=0.1))
+            if "pv" in info_before and len(info_before["pv"]) > 0:
+                missed_best_move = temp_board.san(info_before["pv"][0])
+
         moving_piece = temp_board.piece_at(user_move.from_square)
         moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize() if moving_piece else "Piece"
-        
         san_move = temp_board.san(user_move)
 
-        # 3. Apply the move and get evaluation AFTER
+        # 3. Apply the move and get data AFTER
         temp_board.push(user_move)
         fen_after = temp_board.fen()
         current_eval = get_evaluation(fen_after)
 
-        # 4. Engine Refutation (looking one move ahead)
+        # 4. Engine Refutation (Opponent's best response)
         punishment_move = "None"
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
-            info = engine.analyse(temp_board, chess.engine.Limit(time=0.1))
-            if "pv" in info and len(info["pv"]) > 0:
-                punishment_move = temp_board.san(info["pv"][0])
+            info_after = engine.analyse(temp_board, chess.engine.Limit(time=0.1))
+            if "pv" in info_after and len(info_after["pv"]) > 0:
+                punishment_move = temp_board.san(info_after["pv"][0])
+
+        # --- IDENTIFY THE ASSASSIN ---
+        punishing_piece = "opponent"
+        if punishment_move != "None":
+            p_char = punishment_move[0]
+            piece_map = {'Q': 'Queen', 'R': 'Rook', 'B': 'Bishop', 'N': 'Knight', 'K': 'King'}
+            punishing_piece = piece_map.get(p_char, "Pawn")
 
         # 5. MATH & CATEGORY DETECTION
-        category = "Good/Positional Move" # Default
+        category = "Good/Positional Move" 
         eval_delta = 0.0
         
         try:
-            # Safely parse evaluations (handling 'M4', 'M-2', etc.)
             def parse_eval(e):
                 if isinstance(e, str) and "M" in e:
                     return 20.0 if not "-" in e else -20.0
@@ -208,10 +223,9 @@ def explain_move():
             eval_delta = c_val - p_val
             turn_count = len(temp_board.move_stack)
 
-            # Categorize the move based on engine data
             if isinstance(current_eval, str) and "M-" in current_eval:
                 category = "Missing Checkmate"
-            elif p_val > 3.0 and c_val < 1.0:
+            elif p_val > 2.5 and eval_delta < -2.0: # Significant drop from a winning position
                 category = "Missed Win"
             elif eval_delta <= -3.0:
                 category = "Blunder"
@@ -224,36 +238,33 @@ def explain_move():
                 
         except Exception as math_e:
             print(f"Eval Math Error: {math_e}")
-            eval_delta = 0
 
-        # 6. Formatting the Prompt
-        # NEW FIX: Only give the AI the opponent's response if there is an actual punishment!
-        if category in ["Opening/Book Move", "Good/Positional Move"]:
-            ai_facing_punishment = "N/A - This was a good move, focus only on why the user's move is good."
-        else:
-            ai_facing_punishment = punishment_move
-
-        formatted_system_instruction = system_instruction # Already defined globally
+        # 6. Final Prompt Construction
+        # Use punishment_move for the logic now that we've cleaned the code
+        ai_facing_punishment = punishment_move if category not in ["Opening/Book Move", "Good/Positional Move"] else "N/A"
 
         prompt = f"""
         DATA:
         - Piece Moved: {moving_piece_name}
         - Move Played: {san_move}
         - Move Category: {category}
-        - Evaluation Change: Dropped/Gained by {round(eval_delta, 2)} points
+        - Evaluation Change: {round(eval_delta, 2)} points
         - Engine's Best Next Move (Opponent Response): {ai_facing_punishment}
+        - Punishing Piece: {punishing_piece}
+        - Missed Best Move: {missed_best_move}
         - Current Board FEN: {fen_after}
 
         TASK:
         Based on the 'Move Category' of [{category}], explain the move {san_move}. 
-        If it's an inaccuracy, mistake, or blunder, use the 'Engine's Best Next Move' to explain exactly what the opponent will do to punish the move. 
-        If it's an Opening or Good move, STRICTLY IGNORE the opponent's next move and explain why the user's move works well.
+        - If [{category}] is 'Inaccuracy', 'Mistake', 'Blunder', or 'Missing Checkmate', use the 'Engine's Best Next Move' to explain exactly how the opponent's {punishing_piece} will punish the user. 
+        - If [{category}] is 'Missed Win', strictly focus on how they failed to play {missed_best_move} and what {missed_best_move} would have accomplished.
+        - If [{category}] is 'Opening' or 'Good', STRICTLY IGNORE the opponent's next move and the missed move. Only explain why {san_move} works well.
         """
         
         response = client.chat.completions.create(
             model='gpt-4o-mini',
             messages=[
-                {"role": "system", "content": formatted_system_instruction},
+                {"role": "system", "content": system_instruction},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
@@ -264,6 +275,61 @@ def explain_move():
     except Exception as e:
         print(f"!!! OPENAI COACH ERROR: {str(e)}")
         return jsonify({"status": "error", "message": "Failed to analyze move."})
+    
+
+@app.route('/best_move', methods=['POST'])
+def best_move():
+    data = request.json
+    current_fen = data.get("fen")
+    
+    # Use a local board instance for this specific request
+    temp_board = chess.Board(current_fen) if current_fen else board
+
+    if temp_board.is_game_over():
+        return jsonify({"status": "error", "message": "The game is already over!"})
+
+    try:
+        with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
+            info = engine.analyse(temp_board, chess.engine.Limit(time=0.1))
+            best_move_obj = info["pv"][0]
+            san_move = temp_board.san(best_move_obj)
+            
+            moving_piece = temp_board.piece_at(best_move_obj.from_square)
+            moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize()
+
+        # Update prompt to be more skeptical
+        prompt = f"""
+        DATA:
+        - Recommended Move: {san_move}
+        - Piece Moving: {moving_piece_name}
+        - Current Board FEN: {temp_board.fen()}
+
+        TASK:
+        Explain why {san_move} is the best move. 
+        CRITICAL: If {san_move} appears to hang a piece or looks like a blunder, 
+        look deeper into the FEN to find the tactical justification. 
+        If you cannot find a strong tactical reason, admit it.
+        """
+        
+        response = client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+        
+        return jsonify({
+            "status": "success", 
+            "move": san_move, 
+            "explanation": response.choices[0].message.content
+        })
+
+    except Exception as e:
+        print(f"!!! BEST MOVE ERROR: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to suggest a move."})
+    
 
 if __name__ == '__main__':
     app.run(debug=True)
