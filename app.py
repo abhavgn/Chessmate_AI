@@ -282,33 +282,52 @@ def best_move():
     data = request.json
     current_fen = data.get("fen")
     
-    # Use a local board instance for this specific request
-    temp_board = chess.Board(current_fen) if current_fen else board
+    temp_board = chess.Board(current_fen) if current_fen else chess.Board()
 
     if temp_board.is_game_over():
         return jsonify({"status": "error", "message": "The game is already over!"})
 
     try:
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
-            info = engine.analyse(temp_board, chess.engine.Limit(time=0.1))
+            # We use depth=15 or a slightly longer time to get a solid tactical line
+            info = engine.analyse(temp_board, chess.engine.Limit(time=0.2))
+            
+            # 1. Get the primary move
             best_move_obj = info["pv"][0]
             san_move = temp_board.san(best_move_obj)
             
+            # 2. Extract the "Expected Continuation" (The next 3-4 moves)
+            # This is the secret sauce that stops the AI from hallucinating
+            pv_san = []
+            test_board = temp_board.copy()
+            
+            # Grab up to the next 4 moves (2 moves for White, 2 for Black)
+            for m in info["pv"][:4]: 
+                pv_san.append(test_board.san(m))
+                test_board.push(m)
+                
+            expected_line = " -> ".join(pv_san)
+            
             moving_piece = temp_board.piece_at(best_move_obj.from_square)
-            moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize()
+            moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize() if moving_piece else "Piece"
 
-        # Update prompt to be more skeptical
+        # 3. The newly structured prompt with the "Best Reply" rule
         prompt = f"""
         DATA:
         - Recommended Move: {san_move}
         - Piece Moving: {moving_piece_name}
+        - Engine's Expected Continuation: {expected_line}
         - Current Board FEN: {temp_board.fen()}
 
         TASK:
-        Explain why {san_move} is the best move. 
-        CRITICAL: If {san_move} appears to hang a piece or looks like a blunder, 
-        look deeper into the FEN to find the tactical justification. 
-        If you cannot find a strong tactical reason, admit it.
+        Explain exactly WHY {san_move} is the best move.
+        
+        RULES:
+        1. **The Immediate Gain Rule:** Focus heavily on what {san_move} does immediately (e.g., wins material, forks pieces, ruins castling rights).
+        2. **The "Best Reply" Rule:** The 'Expected Continuation' shows the opponent's *best* reply, not their *only* reply. DO NOT say an opponent is "forced" to make a specific move (like moving to a specific square) unless it is part of a forced checkmate. Use phrases like "The engine expects..." or "If they respond with..."
+        3. **The "No Ghost Tactics" Rule:** DO NOT invent forks, pins, or traps for the subsequent moves in the expected continuation. 
+        4. **Context Only:** Use the expected continuation ONLY to verify that {san_move} is safe or leads to a direct material/tactical win.
+        5. Be blunt and practical. Maximum 3 sentences.
         """
         
         response = client.chat.completions.create(
