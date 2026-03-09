@@ -152,6 +152,82 @@ def engine_move():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+def get_pins_and_attacks(board, square):
+    # This checks if a piece on a specific square is pinned to the king
+    is_pinned = board.is_pinned(board.turn, square)
+    
+    # This finds all pieces attacking that square
+    attackers = board.attackers(not board.turn, square)
+    attacker_names = [chess.piece_name(board.piece_at(s).piece_type) for s in attackers if board.piece_at(s)]
+    
+    return is_pinned, attacker_names
+
+def get_tactical_facts(board):
+    facts = []
+    # Identify Absolute Pins (Pieces pinned to the King)
+    for sq in chess.SQUARES:
+        piece = board.piece_at(sq)
+        if piece:
+            pin_info = board.pin(piece.color, sq)
+            # If the piece is pinned, pin_info will contain more than just its own square
+            if board.is_pinned(piece.color, sq):
+                # Find the pinner (the enemy piece attacking the line)
+                attackers = board.attackers(not piece.color, sq)
+                for a_sq in attackers:
+                    # Check if this attacker is the one actually pinning it
+                    if a_sq in pin_info:
+                        pinner = board.piece_at(a_sq)
+                        facts.append(f"The {chess.piece_name(piece.piece_type)} on {chess.square_name(sq)} is pinned to the King by the {chess.piece_name(pinner.piece_type)} on {chess.square_name(a_sq)}.")
+    
+    return "\n".join(facts) if facts else "No absolute pins currently on the board."
+
+def get_material_score(board):
+    # Standard piece values
+    values = {
+        chess.PAWN: 1,
+        chess.KNIGHT: 3,
+        chess.BISHOP: 3,
+        chess.ROOK: 5,
+        chess.QUEEN: 9
+    }
+    
+    white_score = 0
+    black_score = 0
+    
+    for piece_type in values:
+        white_score += len(board.pieces(piece_type, chess.WHITE)) * values[piece_type]
+        black_score += len(board.pieces(piece_type, chess.BLACK)) * values[piece_type]
+    
+    diff = white_score - black_score
+    
+    if diff == 0:
+        return "Material is even."
+    elif diff > 0:
+        return f"White is +{diff} in material."
+    else:
+        return f"Black is +{abs(diff)} in material."
+
+def get_tactical_context(board, target_sq):
+    facts = []
+    
+    # 1. Check for Absolute Pins
+    for sq in chess.SQUARES:
+        piece = board.piece_at(sq)
+        if piece and piece.color == board.turn:
+            if board.is_pinned(board.turn, sq):
+                pinner_sq = board.attackers(not board.turn, sq) # Find who is pinning it
+                for ps in pinner_sq:
+                    pinner = board.piece_at(ps)
+                    facts.append(f"The {chess.piece_name(piece.piece_type)} on {chess.square_name(sq)} is pinned to the King by the {chess.piece_name(pinner.piece_type)} on {chess.square_name(ps)}.")
+
+    # 2. Identify Attackers on the target square (where the best move goes)
+    attackers = board.attackers(not board.turn, target_sq)
+    for a_sq in attackers:
+        a_piece = board.piece_at(a_sq)
+        facts.append(f"The {chess.piece_name(a_piece.piece_type)} on {chess.square_name(a_sq)} is attacking {chess.square_name(target_sq)}.")
+
+    return "\n".join(facts) if facts else "No immediate pins or direct trades detected."
 
 @app.route('/explain_move', methods=['POST'])
 def explain_move():
@@ -281,16 +357,23 @@ def explain_move():
 def best_move():
     data = request.json
     current_fen = data.get("fen")
+
+    # Calculate the actual move number (e.g., Move 1, Move 12)
+    move_number = (len(board.move_stack) // 2) + 1
     
     temp_board = chess.Board(current_fen) if current_fen else chess.Board()
 
     if temp_board.is_game_over():
         return jsonify({"status": "error", "message": "The game is already over!"})
+    
+
+    material_status = get_material_score(temp_board)
+    tactical_facts = get_tactical_facts(temp_board)
 
     try:
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
             # We use depth=15 or a slightly longer time to get a solid tactical line
-            info = engine.analyse(temp_board, chess.engine.Limit(time=0.2))
+            info = engine.analyse(temp_board, chess.engine.Limit(time=1.5))
             
             # 1. Get the primary move
             best_move_obj = info["pv"][0]
@@ -301,34 +384,49 @@ def best_move():
             pv_san = []
             test_board = temp_board.copy()
             
-            # Grab up to the next 4 moves (2 moves for White, 2 for Black)
             for m in info["pv"][:4]: 
-                pv_san.append(test_board.san(m))
+                turn_label = "White" if test_board.turn == chess.WHITE else "Black"
+                pv_san.append(f"{turn_label} plays {test_board.san(m)}")
                 test_board.push(m)
                 
-            expected_line = " -> ".join(pv_san)
+            expected_line_list = "\n".join([f"- {m}" for m in pv_san])
+
+            # NEW: Get the game history to identify openings
+            game_history = []
+            hist_board = chess.Board()
+            # Use the global board to get the moves played so far
+            for move in board.move_stack:
+                game_history.append(hist_board.san(move))
+                hist_board.push(move)
+            history_str = " ".join(game_history)
             
             moving_piece = temp_board.piece_at(best_move_obj.from_square)
             moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize() if moving_piece else "Piece"
 
         # 3. The newly structured prompt with the "Best Reply" rule
-        prompt = f"""
-        DATA:
-        - Recommended Move: {san_move}
-        - Piece Moving: {moving_piece_name}
-        - Engine's Expected Continuation: {expected_line}
-        - Current Board FEN: {temp_board.fen()}
+        # In your route, call the function first:
+        tactical_facts = get_tactical_facts(temp_board)
 
-        TASK:
-        Explain exactly WHY {san_move} is the best move.
-        
-        RULES:
-        1. **The Immediate Gain Rule:** Focus heavily on what {san_move} does immediately (e.g., wins material, forks pieces, ruins castling rights).
-        2. **The "Best Reply" Rule:** The 'Expected Continuation' shows the opponent's *best* reply, not their *only* reply. DO NOT say an opponent is "forced" to make a specific move (like moving to a specific square) unless it is part of a forced checkmate. Use phrases like "The engine expects..." or "If they respond with..."
-        3. **The "No Ghost Tactics" Rule:** DO NOT invent forks, pins, or traps for the subsequent moves in the expected continuation. 
-        4. **Context Only:** Use the expected continuation ONLY to verify that {san_move} is safe or leads to a direct material/tactical win.
-        5. Be blunt and practical. Maximum 3 sentences.
-        """
+        prompt = f"""
+            DATA:
+            - Move Number: {move_number}
+            - Recommended Move: {san_move}
+            - Piece Moving: {moving_piece_name}
+            - Material Status: {material_status}
+            - Tactical Facts (Ground Truth): {tactical_facts}
+            - Engine's Expected Continuation: {expected_line_list}
+            - Current Board FEN: {temp_board.fen()}
+
+            TASK:
+            Explain exactly WHY {san_move} is the best move.
+            
+            STRICT RULES:
+            1. **The "Copy-Paste" Rule:** When mentioning the opponent's best response, YOU MUST copy the move EXACTLY as it appears in the 'Engine's Expected Continuation'. If the data says "Black plays Ke6", YOU MUST NOT say "Black plays Be6" or "Black blocks with the bishop." 
+            2. **Coordinate Lockdown:** Do not mention any square (like e7 or d5) unless it is explicitly mentioned in the 'Tactical Facts' or 'Expected Continuation'. 
+            3. **Piece Identity:** Double-check the piece type. If the data says 'K', it is a King. If 'B', it is a Bishop. Do not swap them.
+            4. **The "Best Reply" Rule:** Use phrases like "The best response is [EXACT MOVE FROM DATA], but you still maintain the initiative."
+            5. Tone: Practical, blunt, and instructive. Max 3 sentences.
+            """
         
         response = client.chat.completions.create(
             model='gpt-4o-mini',
