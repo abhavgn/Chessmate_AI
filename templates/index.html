@@ -163,6 +163,8 @@
         }
 
         function onDrop(source, target) {
+            clearArrows();
+
             if (source === target) return;
             if (currentGameMode === 'play' && game.turn() === 'b') return 'snapback';
 
@@ -177,6 +179,8 @@
         }
 
         function sendMoveToServer(moveText, source, target) {
+            clearArrows();
+
             fetch("/move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -245,6 +249,8 @@
             .then(res => res.json())
             .then(data => {
                 if (data.move) {
+                    clearArrows();
+                    
                     game.move(data.move, { sloppy: true });
                     board.position(data.fen);
                     
@@ -270,6 +276,8 @@
         }
 
         function resetGame() {
+            clearArrows();
+
             fetch('/reset', { method: 'POST' })
             .then(res => res.json())
             .then(data => {
@@ -280,6 +288,74 @@
                 $('#game-over-overlay').hide(); 
                 $('.square-55d63').removeClass('highlight-check'); 
             });
+        }
+
+        function clearArrows() {
+            const svg = document.getElementById('arrow-svg');
+            if (svg) svg.innerHTML = '';
+        }
+
+        function drawBestMoveArrow(fromSq, toSq) {
+            const boardElement = document.getElementById('myBoard');
+            const boardRect = boardElement.getBoundingClientRect();
+            const squareSize = boardRect.width / 8;
+
+            function getCoords(squareIndex) {
+                const col = squareIndex % 8;
+                const row = 7 - Math.floor(squareIndex / 8);
+                return {
+                    x: col * squareSize + squareSize / 2,
+                    y: row * squareSize + squareSize / 2
+                };
+            }
+
+            const start = getCoords(fromSq);
+            const end = getCoords(toSq);
+
+            let svg = document.getElementById('arrow-svg');
+            if (!svg) {
+                svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.id = "arrow-svg";
+                svg.setAttribute("style", "position:absolute; top:0; left:0; pointer-events:none; z-index: 10;");
+                svg.setAttribute("width", boardRect.width);
+                svg.setAttribute("height", boardRect.height);
+                boardElement.appendChild(svg);
+            }
+            svg.innerHTML = '';
+
+            // 1. Calculate the angle of the line
+            const angle = Math.atan2(end.y - start.y, end.x - start.x);
+            
+            // 2. Shorten the line slightly so it doesn't poke out the front of the arrowhead
+            const headLength = squareSize * 0.4; 
+            const lineEndX = end.x - (headLength * 0.5) * Math.cos(angle);
+            const lineEndY = end.y - (headLength * 0.5) * Math.sin(angle);
+
+            // 3. Draw the Line (The Shaft)
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line.setAttribute("x1", start.x);
+            line.setAttribute("y1", start.y);
+            line.setAttribute("x2", lineEndX);
+            line.setAttribute("y2", lineEndY);
+            line.setAttribute("stroke", "rgba(50, 200, 50, 0.5)"); // Cleaner green
+            line.setAttribute("stroke-width", squareSize * 0.15);  // Proportional thickness
+            line.setAttribute("stroke-linecap", "round");
+            svg.appendChild(line);
+
+            // 4. Draw the Arrowhead (The Triangle)
+            const head = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            
+            // Calculate 3 points of the triangle relative to 'end'
+            const x1 = end.x;
+            const y1 = end.y;
+            const x2 = end.x - headLength * Math.cos(angle - Math.PI / 6);
+            const y2 = end.y - headLength * Math.sin(angle - Math.PI / 6);
+            const x3 = end.x - headLength * Math.cos(angle + Math.PI / 6);
+            const y3 = end.y - headLength * Math.sin(angle + Math.PI / 6);
+
+            head.setAttribute("points", `${x1},${y1} ${x2},${y2} ${x3},${y3}`);
+            head.setAttribute("fill", "rgba(50, 200, 50, 0.5)");
+            svg.appendChild(head);
         }
 
         // --- AI COACH CHAT LOGIC WITH TYPEWRITER EFFECT ---
@@ -390,6 +466,8 @@
                 if (loader) loader.remove();
 
                 if (data.status === "success") {
+                    drawBestMoveArrow(data.from_sq, data.to_sq);
+
                     const combinedMessage = `I recommend ${data.move}.\n\n${data.explanation}`;
                     appendChatMessage("bot", combinedMessage, true); // true = Typewriter effect!
                 } else {

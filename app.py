@@ -437,9 +437,12 @@ def best_move():
             temperature=0.3
         )
         
+        # Inside your /best_move route in app.py
         return jsonify({
             "status": "success", 
             "move": san_move, 
+            "from_sq": best_move_obj.from_square, # Integer 0-63
+            "to_sq": best_move_obj.to_square,     # Integer 0-63
             "explanation": response.choices[0].message.content
         })
 

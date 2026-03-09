@@ -264,3 +264,12 @@ body {
 .move-val:last-child {
     border-color: #10b981; 
 }
+
+/* This ensures the arrow SVG aligns perfectly with the board */
+#myBoard {
+    position: relative;
+}
+
+#arrow-svg {
+    z-index: 10; /* Ensures arrow stays above the squares but below the pieces if needed */
+}
