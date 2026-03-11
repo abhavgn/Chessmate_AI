@@ -106,11 +106,11 @@ def engine_move():
     
     if elo_rating <= 200:    skill = 0
     elif elo_rating <= 400:  skill = 0
-    elif elo_rating <= 800:  skill = 2
-    elif elo_rating <= 1200: skill = 5
-    elif elo_rating <= 1600: skill = 10
-    elif elo_rating <= 2000: skill = 14
-    elif elo_rating <= 2400: skill = 17
+    elif elo_rating <= 800:  skill = 1
+    elif elo_rating <= 1200: skill = 4
+    elif elo_rating <= 1600: skill = 5
+    elif elo_rating <= 2000: skill = 12
+    elif elo_rating <= 2400: skill = 15
     else:                    skill = 20
 
     try:
@@ -228,6 +228,43 @@ def get_tactical_context(board, target_sq):
         facts.append(f"The {chess.piece_name(a_piece.piece_type)} on {chess.square_name(a_sq)} is attacking {chess.square_name(target_sq)}.")
 
     return "\n".join(facts) if facts else "No immediate pins or direct trades detected."
+
+@app.route('/game_summary', methods=['POST'])
+def game_summary():
+    data = request.json
+    pgn = data.get('pgn')
+    bot_elo = data.get('bot_elo', 400)
+
+    if not pgn:
+        return jsonify({"status": "error", "message": "No game history found."})
+
+    try:
+        # The prompt is designed to be grounded and critical
+        response = client.chat.completions.create(
+            model="gpt-4o", # Or your specific model version
+            messages=[
+                {"role": "system", "content": f"""You are 'James', a high-level Chess Coach. 
+                You are reviewing a game played by a student against a {bot_elo} ELO bot.
+                
+                CRITICAL INSTRUCTIONS:
+                1. Analyze the provided PGN move-by-move.
+                2. Do NOT mention moves that did not happen. 
+                3. Identify the Opening used.
+                4. Find the 'Turning Point' (the move where the evaluation swung).
+                5. Be encouraging but honest about blunders.
+                6. Format the summary into three distinct sections: 1. Opening Analysis, 2. The Turning Point, and 3. Coach's Tip for Improvement.
+                7. Use markdown for emphasis (e.g., **Nf3**)."""},
+                {"role": "user", "content": f"Here is the game PGN:\n{pgn}\n\nPlease summarize my performance."}
+            ],
+            temperature=0.7
+        )
+
+        summary_text = response.choices[0].message.content
+        return jsonify({"status": "success", "summary": summary_text})
+
+    except Exception as e:
+        print(f"Error in summary: {e}")
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/explain_move', methods=['POST'])
 def explain_move():

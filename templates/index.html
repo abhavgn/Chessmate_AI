@@ -23,7 +23,10 @@
                 <div id="game-over-overlay">
                     <h2 id="end-title">Checkmate!</h2>
                     <p id="end-subtitle">White Wins</p>
-                    <button class="action-btn danger" onclick="resetGame()" style="margin-top: 10px;">Play Again</button>
+                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button class="action-btn primary" onclick="requestGameSummary()">Game Summary</button>
+                        <button class="action-btn danger" onclick="resetGame()">Play Again</button>
+                    </div>
                 </div>
                 
                 <div id="promotion-overlay">
@@ -122,6 +125,52 @@
             element.classList.add('active');
         }
 
+        function requestGameSummary() {
+            // 1. Hide the overlay so the user can see the chat
+            $('#game-over-overlay').hide();
+            
+            // 2. Add the user prompt to the chat
+            appendChatMessage("user", "Can you give me a summary of that game?");
+            
+            // 3. Show the loading state
+            const chatHistory = document.getElementById('chat-history');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = "coach-loading"; 
+            loadingDiv.className = "msg bot";
+            loadingDiv.innerHTML = "<em>Analyzing the full game PGN...</em>";
+            chatHistory.appendChild(loadingDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            // 4. Fetch the full PGN and send it to the new backend route
+            const gamePgn = game.pgn();
+
+            fetch("/game_summary", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    pgn: gamePgn,
+                    bot_elo: currentElo // Passing the Elo gives the Coach context on the difficulty
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                const loader = document.getElementById('coach-loading');
+                if (loader) loader.remove();
+
+                if (data.status === "success") {
+                    appendChatMessage("bot", data.summary, true); // True triggers your typewriter effect
+                } else {
+                    appendChatMessage("bot", "Oops: " + data.message, true);
+                }
+            })
+            .catch(err => {
+                const loader = document.getElementById('coach-loading');
+                if (loader) loader.remove();
+                appendChatMessage("bot", "My connection dropped while reviewing the game.", true);
+                console.error("Summary error:", err);
+            });
+        }
+
         function checkGameOver() {
             if (game.game_over()) {
                 let title = "Game Over";
@@ -139,7 +188,16 @@
 
                 $('#end-title').text(title);
                 $('#end-subtitle').text(subtitle);
-                $('#game-over-overlay').css('display', 'flex'); 
+                $('#game-over-overlay').css('display', 'flex');
+
+                const summaryBtn = document.querySelector('#game-over-overlay .primary');
+                if (currentGameMode === 'play') {
+                    summaryBtn.style.display = 'inline-block';
+                } else {
+                    summaryBtn.style.display = 'none';
+                }
+                
+                $('#game-over-overlay').css('display', 'flex');
             }
         }
 
