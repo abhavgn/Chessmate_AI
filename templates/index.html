@@ -24,6 +24,7 @@
                     <h2 id="end-title">Checkmate!</h2>
                     <p id="end-subtitle">White Wins</p>
                     <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button class="action-btn secondary" onclick="$('#game-over-overlay').hide()">Review Board</button>
                         <button class="action-btn primary" onclick="requestGameSummary()">Game Summary</button>
                         <button class="action-btn danger" onclick="resetGame()">Play Again</button>
                     </div>
@@ -89,7 +90,10 @@
         var board = null;
         var game = new Chess();
         var currentGameMode = 'analysis'; 
-        let currentElo = 400;
+        let currentElo = 200;
+
+        let moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1']; // The starting FEN
+        let currentMoveIndex = 0;
 
         // 1. Initialize the board configuration
         var config = {
@@ -204,23 +208,38 @@
         function updateMoveList() {
             const moveListElement = document.getElementById('move-list');
             const history = game.history();
-            moveListElement.innerHTML = ''; 
+            let html = ''; // Start with an empty string
 
             for (let i = 0; i < history.length; i += 2) {
                 const turnNum = Math.floor(i / 2) + 1;
                 const whiteMove = history[i];
                 const blackMove = history[i + 1] ? history[i + 1] : '';
 
-                moveListElement.innerHTML += `
-                    <div class="move-num">${turnNum}.</div>
-                    <div class="move-val">${whiteMove}</div>
-                    <div class="move-val">${blackMove}</div>
-                `;
+                // We assign an index that matches our moveHistoryFens array
+                const whiteIndex = i + 1;
+                const blackIndex = i + 2;
+
+                html += `<div class="move-num">${turnNum}.</div>`;
+                html += `<div class="move-val" data-index="${whiteIndex}">${whiteMove}</div>`;
+                
+                if (blackMove) {
+                    html += `<div class="move-val" data-index="${blackIndex}">${blackMove}</div>`;
+                }
             }
-            moveListElement.scrollTop = moveListElement.scrollHeight;
+
+            moveListElement.innerHTML = html;
+            // Auto-scroll to bottom only if we are at the latest move
+            if (currentMoveIndex === moveHistoryFens.length - 1) {
+                moveListElement.scrollTop = moveListElement.scrollHeight;
+            }
+            
+            // Refresh highlight in case we just added a move
+            highlightCurrentMove();
         }
 
         function onDrop(source, target) {
+            if (currentMoveIndex !== moveHistoryFens.length - 1) return 'snapback';
+
             clearArrows();
 
             if (source === target) return;
@@ -250,7 +269,11 @@
                     board.position(data.fen); 
                     
                     const promoChar = moveText.length === 5 ? moveText[4] : 'q';
-                    game.move({ from: source, to: target, promotion: promoChar }); 
+                    game.move({ from: source, to: target, promotion: promoChar });
+
+                    moveHistoryFens.push(game.fen());
+                    currentMoveIndex = moveHistoryFens.length - 1;
+                    highlightCurrentMove();
                     
                     updateMoveList();
                     updateCheckHighlight();
@@ -311,6 +334,10 @@
                     
                     game.move(data.move, { sloppy: true });
                     board.position(data.fen);
+
+                    moveHistoryFens.push(game.fen());
+                    currentMoveIndex = moveHistoryFens.length - 1;
+                    highlightCurrentMove();
                     
                     updateMoveList();
                     updateCheckHighlight();
@@ -335,6 +362,10 @@
 
         function resetGame() {
             clearArrows();
+
+            // Inside resetGame(), add these two lines:
+            moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
+            currentMoveIndex = 0;
 
             fetch('/reset', { method: 'POST' })
             .then(res => res.json())
@@ -416,8 +447,28 @@
             svg.appendChild(head);
         }
 
-        // --- AI COACH CHAT LOGIC WITH TYPEWRITER EFFECT ---
+        function highlightCurrentMove() {
+            // 1. Remove highlight from everyone
+            const allMoves = document.querySelectorAll('.move-val');
+            allMoves.forEach(move => move.classList.remove('current-move'));
 
+            // 2. Find the move that matches our current view index
+            if (currentMoveIndex > 0) {
+                const activeMove = document.querySelector(`.move-val[data-index="${currentMoveIndex}"]`);
+                
+                if (activeMove) {
+                    activeMove.classList.add('current-move');
+                    
+                    // 3. Smooth scroll so the move is always visible
+                    activeMove.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'nearest'
+                    });
+                }
+            }
+        }
+
+        // --- AI COACH CHAT LOGIC WITH TYPEWRITER EFFECT ---
         function appendChatMessage(sender, text, animate = false) {
             const chatHistory = document.getElementById('chat-history');
             const msgDiv = document.createElement('div');
@@ -537,6 +588,34 @@
                 if (loader) loader.remove();
                 appendChatMessage("bot", "My connection to the engine dropped.", true);
             });
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (document.activeElement.tagName === 'INPUT') return;
+
+            if (e.key === 'ArrowLeft') {
+                if (currentMoveIndex > 0) {
+                    currentMoveIndex--;
+                    board.position(moveHistoryFens[currentMoveIndex]);
+                    highlightCurrentMove(); // <--- CRITICAL
+                }
+            } else if (e.key === 'ArrowRight') {
+                if (currentMoveIndex < moveHistoryFens.length - 1) {
+                    currentMoveIndex++;
+                    board.position(moveHistoryFens[currentMoveIndex]);
+                    highlightCurrentMove(); // <--- CRITICAL
+                }
+            }
+
+            // Handle the Overlay visibility
+            if (e.key === 'ArrowRight' && currentMoveIndex === moveHistoryFens.length - 1) {
+                if (game.game_over()) {
+                    $('#game-over-overlay').css('display', 'flex');
+                }
+            }
+            
+            clearArrows();
+            $('.square-55d63').removeClass('highlight-check');
         });
     </script>
 </body>
