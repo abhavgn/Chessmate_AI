@@ -46,6 +46,28 @@
                 <button class="action-btn secondary" id="suggest-btn">Best Move?</button>
                 <button class="action-btn danger" onclick="resetGame()">Reset Game</button>
             </div>
+            <div class="board-actions" id="pgn-actions" style="margin-top: 8px;">
+                <button class="action-btn pgn-btn" id="copy-pgn-btn" onclick="copyPGN()">📋 Copy PGN</button>
+                <button class="action-btn pgn-btn" id="share-btn" onclick="shareGame()">🔗 Share Game</button>
+            </div>
+
+            <!-- Toast Notification -->
+            <div id="toast" style="
+                display: none;
+                position: fixed;
+                bottom: 30px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #27ae60;
+                color: white;
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 0.9rem;
+                z-index: 9999;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                transition: opacity 0.4s ease;
+            ">✅ Copied to clipboard!</div>
         </div>
 
         <div id="sidebar">
@@ -65,6 +87,21 @@
                     <button class="elo-btn" onclick="setElo(2000, this)">2000</button>
                     <button class="elo-btn" onclick="setElo(2400, this)">2400</button>
                     <button class="elo-btn" onclick="setElo(2800, this)">2800+</button>
+                </div>
+            </div>
+
+            <!-- PGN Upload Panel — Analysis mode only -->
+            <div id="pgn-upload-panel">
+                <div class="pgn-upload-header">📂 Load a Game (PGN)</div>
+                <div class="pgn-upload-body">
+                    <div class="pgn-drop-zone" id="pgn-drop-zone">
+                        <span id="pgn-drop-label">Drop a .pgn file here or</span>
+                        <label class="pgn-file-label" for="pgn-file-input">Browse</label>
+                        <input type="file" id="pgn-file-input" accept=".pgn" style="display:none;">
+                    </div>
+                    <div style="text-align:center; color:#64748b; font-size:0.75rem; margin: 6px 0;">— or paste PGN text —</div>
+                    <textarea id="pgn-text-input" placeholder='Paste PGN here... e.g. 1. e4 e5 2. Nf3 Nc6' rows="3"></textarea>
+                    <button class="pgn-load-btn" onclick="loadPGNFromInput()">Load Game ▶</button>
                 </div>
             </div>
 
@@ -113,13 +150,16 @@
 
             const evalContainer = document.getElementById('eval-bar-container');
             const eloPanel = document.getElementById('elo-panel');
+            const pgnUploadPanel = document.getElementById('pgn-upload-panel');
 
             if (mode === 'play') {
                 evalContainer.style.display = 'none'; 
-                eloPanel.style.display = 'block';    
+                eloPanel.style.display = 'block';
+                pgnUploadPanel.style.display = 'none';
             } else {
                 evalContainer.style.display = 'block'; 
                 eloPanel.style.display = 'none';
+                pgnUploadPanel.style.display = 'block';
             }
         }
 
@@ -617,6 +657,188 @@
             clearArrows();
             $('.square-55d63').removeClass('highlight-check');
         });
+        // ─── PGN UPLOAD / LOAD ───────────────────────────────────────────
+
+        function loadPGNString(pgn) {
+            const trimmed = pgn.trim();
+            if (!trimmed) {
+                showToast('❌ No PGN found.', '#c0392b');
+                return;
+            }
+
+            const testGame = new Chess();
+            const loaded = testGame.load_pgn(trimmed);
+
+            if (!loaded) {
+                showToast('❌ Invalid PGN — check the format.', '#c0392b');
+                return;
+            }
+
+            // Reset everything cleanly
+            fetch('/reset', { method: 'POST' }).then(() => {
+                game.load_pgn(trimmed);
+
+                // Rebuild FEN history so arrow keys work
+                moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
+                const replayBoard = new Chess();
+                for (const move of game.history()) {
+                    replayBoard.move(move);
+                    moveHistoryFens.push(replayBoard.fen());
+                }
+
+                currentMoveIndex = moveHistoryFens.length - 1;
+                board.position(game.fen());
+                updateMoveList();
+                updateEvalBar(0);
+                highlightCurrentMove();
+                $('.square-55d63').removeClass('highlight-check');
+                clearArrows();
+
+                // Clear the input fields
+                document.getElementById('pgn-text-input').value = '';
+                document.getElementById('pgn-file-input').value = '';
+                document.getElementById('pgn-drop-label').textContent = 'Drop a .pgn file here or';
+
+                showToast('✅ Game loaded! Use ← → to review.');
+            });
+        }
+
+        function loadPGNFromInput() {
+            const text = document.getElementById('pgn-text-input').value;
+            loadPGNString(text);
+        }
+
+        // File input (Browse button)
+        document.getElementById('pgn-file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(ev) { loadPGNString(ev.target.result); };
+            reader.readAsText(file);
+        });
+
+        // Drag-and-drop onto the drop zone
+        const dropZone = document.getElementById('pgn-drop-zone');
+
+        dropZone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            dropZone.classList.add('pgn-drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', function() {
+            dropZone.classList.remove('pgn-drag-over');
+        });
+
+        dropZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            dropZone.classList.remove('pgn-drag-over');
+            const file = e.dataTransfer.files[0];
+            if (!file || !file.name.endsWith('.pgn')) {
+                showToast('❌ Please drop a .pgn file.', '#c0392b');
+                return;
+            }
+            document.getElementById('pgn-drop-label').textContent = `📄 ${file.name}`;
+            const reader = new FileReader();
+            reader.onload = function(ev) { loadPGNString(ev.target.result); };
+            reader.readAsText(file);
+        });
+
+
+
+        function showToast(message, color) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.background = color || '#27ae60';
+            toast.style.display = 'block';
+            toast.style.opacity = '1';
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => { toast.style.display = 'none'; }, 400);
+            }, 2500);
+        }
+
+        function copyPGN() {
+            const pgn = game.pgn();
+            if (!pgn) {
+                showToast('❌ No moves yet!', '#c0392b');
+                return;
+            }
+            navigator.clipboard.writeText(pgn).then(() => {
+                showToast('✅ PGN copied to clipboard!');
+            }).catch(() => {
+                // Fallback for older browsers
+                const el = document.createElement('textarea');
+                el.value = pgn;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                showToast('✅ PGN copied to clipboard!');
+            });
+        }
+
+        function shareGame() {
+            const pgn = game.pgn();
+            if (!pgn) {
+                showToast('❌ No moves to share yet!', '#c0392b');
+                return;
+            }
+            // Encode the PGN into a URL parameter
+            const encoded = encodeURIComponent(pgn);
+            const shareUrl = window.location.origin + window.location.pathname + '?pgn=' + encoded;
+
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                showToast('🔗 Share link copied! Send it to a friend.');
+            }).catch(() => {
+                const el = document.createElement('textarea');
+                el.value = shareUrl;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                showToast('🔗 Share link copied! Send it to a friend.');
+            });
+        }
+
+        // ─── AUTO-LOAD FROM SHARED LINK ──────────────────────────────────
+        // If the page URL has ?pgn=..., load that game automatically
+        (function loadFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const pgnParam = params.get('pgn');
+            if (!pgnParam) return;
+
+            const pgn = decodeURIComponent(pgnParam);
+            const loaded = game.load_pgn(pgn);
+
+            if (!loaded) {
+                showToast('❌ Could not load shared game.', '#c0392b');
+                return;
+            }
+
+            // Rebuild the move history FEN list so arrow keys work
+            moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
+            const replayBoard = new Chess();
+            const moves = game.history();
+            for (const move of moves) {
+                replayBoard.move(move);
+                moveHistoryFens.push(replayBoard.fen());
+            }
+
+            // Jump to the last position
+            currentMoveIndex = moveHistoryFens.length - 1;
+            board.position(game.fen());
+            updateMoveList();
+            updateEvalBar(0);
+
+            // Switch to Analysis mode automatically
+            setMode('analysis', document.querySelector('.mode-btn'));
+
+            showToast('📂 Shared game loaded! Use ← → to review.');
+
+            // Clean the URL so it doesn't re-trigger on refresh
+            window.history.replaceState({}, '', window.location.pathname);
+        })();
+
     </script>
 </body>
 </html>

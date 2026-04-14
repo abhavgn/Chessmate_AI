@@ -279,3 +279,101 @@ body {
     color: white !important;
     border-radius: 4px;
 }
+
+/* PGN Export Buttons */
+.pgn-btn {
+    background: #7f8c8d;
+    font-size: 0.8rem;
+    padding: 9px 16px;
+    flex: 1;
+}
+.pgn-btn:hover {
+    background: #636e72;
+}
+
+/* PGN Upload Panel */
+#pgn-upload-panel {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    overflow: hidden;
+}
+
+.pgn-upload-header {
+    padding: 8px 12px;
+    background: #334155;
+    color: #f8fafc;
+    font-size: 0.85rem;
+    font-weight: bold;
+    border-bottom: 1px solid #475569;
+}
+
+.pgn-upload-body {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pgn-drop-zone {
+    border: 2px dashed #475569;
+    border-radius: 6px;
+    padding: 10px 14px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    cursor: default;
+    transition: border-color 0.2s, background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.pgn-drop-zone.pgn-drag-over {
+    border-color: #27ae60;
+    background: rgba(39, 174, 96, 0.1);
+    color: #27ae60;
+}
+
+.pgn-file-label {
+    background: #2980b9;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: bold;
+    white-space: nowrap;
+}
+.pgn-file-label:hover { background: #21618c; }
+
+#pgn-text-input {
+    width: 100%;
+    background: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 0.78rem;
+    font-family: 'Courier New', monospace;
+    resize: vertical;
+    box-sizing: border-box;
+}
+#pgn-text-input::placeholder { color: #475569; }
+#pgn-text-input:focus { outline: none; border-color: #27ae60; }
+
+.pgn-load-btn {
+    background: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 9px;
+    font-weight: bold;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    text-transform: uppercase;
+}
+.pgn-load-btn:hover { background: #1e8449; }
