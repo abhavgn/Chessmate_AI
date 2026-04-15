@@ -154,28 +154,20 @@ def engine_move():
         return jsonify({"error": str(e)}), 500
     
 def get_pins_and_attacks(board, square):
-    # This checks if a piece on a specific square is pinned to the king
     is_pinned = board.is_pinned(board.turn, square)
-    
-    # This finds all pieces attacking that square
     attackers = board.attackers(not board.turn, square)
     attacker_names = [chess.piece_name(board.piece_at(s).piece_type) for s in attackers if board.piece_at(s)]
-    
     return is_pinned, attacker_names
 
 def get_tactical_facts(board):
     facts = []
-    # Identify Absolute Pins (Pieces pinned to the King)
     for sq in chess.SQUARES:
         piece = board.piece_at(sq)
         if piece:
             pin_info = board.pin(piece.color, sq)
-            # If the piece is pinned, pin_info will contain more than just its own square
             if board.is_pinned(piece.color, sq):
-                # Find the pinner (the enemy piece attacking the line)
                 attackers = board.attackers(not piece.color, sq)
                 for a_sq in attackers:
-                    # Check if this attacker is the one actually pinning it
                     if a_sq in pin_info:
                         pinner = board.piece_at(a_sq)
                         facts.append(f"The {chess.piece_name(piece.piece_type)} on {chess.square_name(sq)} is pinned to the King by the {chess.piece_name(pinner.piece_type)} on {chess.square_name(a_sq)}.")
@@ -183,7 +175,6 @@ def get_tactical_facts(board):
     return "\n".join(facts) if facts else "No absolute pins currently on the board."
 
 def get_material_score(board):
-    # Standard piece values
     values = {
         chess.PAWN: 1,
         chess.KNIGHT: 3,
@@ -211,17 +202,15 @@ def get_material_score(board):
 def get_tactical_context(board, target_sq):
     facts = []
     
-    # 1. Check for Absolute Pins
     for sq in chess.SQUARES:
         piece = board.piece_at(sq)
         if piece and piece.color == board.turn:
             if board.is_pinned(board.turn, sq):
-                pinner_sq = board.attackers(not board.turn, sq) # Find who is pinning it
+                pinner_sq = board.attackers(not board.turn, sq)
                 for ps in pinner_sq:
                     pinner = board.piece_at(ps)
                     facts.append(f"The {chess.piece_name(piece.piece_type)} on {chess.square_name(sq)} is pinned to the King by the {chess.piece_name(pinner.piece_type)} on {chess.square_name(ps)}.")
 
-    # 2. Identify Attackers on the target square (where the best move goes)
     attackers = board.attackers(not board.turn, target_sq)
     for a_sq in attackers:
         a_piece = board.piece_at(a_sq)
@@ -234,17 +223,20 @@ def game_summary():
     data = request.json
     pgn = data.get('pgn')
     bot_elo = data.get('bot_elo', 400)
+    # FIX 2: receive player color so the summary addresses the right side
+    player_color = data.get('player_color', 'white')
+    player_side  = "White" if player_color == 'white' else "Black"
+    engine_side  = "Black" if player_color == 'white' else "White"
 
     if not pgn:
         return jsonify({"status": "error", "message": "No game history found."})
 
     try:
-        # The prompt is designed to be grounded and critical
         response = client.chat.completions.create(
-            model="gpt-4o", # Or your specific model version
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": f"""You are 'James', a high-level Chess Coach. 
-                You are reviewing a game played by a student against a {bot_elo} ELO bot.
+                You are reviewing a game where the STUDENT played as {player_side} and the {bot_elo} ELO bot played as {engine_side}.
                 
                 CRITICAL INSTRUCTIONS:
                 1. Analyze the provided PGN move-by-move.
@@ -252,8 +244,9 @@ def game_summary():
                 3. Identify the Opening used.
                 4. Find the 'Turning Point' (the move where the evaluation swung).
                 5. Be encouraging but honest about blunders.
-                6. Format the summary into three distinct sections: 1. Opening Analysis, 2. The Turning Point, and 3. Coach's Tip for Improvement.
-                7. Use markdown for emphasis (e.g., **Nf3**)."""},
+                6. Always refer to the student's moves as {player_side}'s moves. Never confuse which side the student was on.
+                7. Format the summary into three distinct sections: 1. Opening Analysis, 2. The Turning Point, and 3. Coach's Tip for Improvement.
+                8. Use markdown for emphasis (e.g., **Nf3**)."""},
                 {"role": "user", "content": f"Here is the game PGN:\n{pgn}\n\nPlease summarize my performance."}
             ],
             temperature=0.7
@@ -271,7 +264,9 @@ def explain_move():
     global board
     data = request.json or {}
     mode = data.get("mode", "analysis")
-    frontend_history = data.get("history", [])  # Full SAN history up to current view position
+    player_color = data.get("player_color", "white")
+    frontend_history = data.get("history", [])
+    game_pgn = data.get("pgn", "")  # FIX 3: receive full PGN for context
 
     # Rebuild board from the frontend's history (works for PGN loads + live games)
     if frontend_history:
@@ -282,7 +277,6 @@ def explain_move():
                 temp_board.push(move)
             except Exception:
                 pass
-        # Sync global board too
         board = temp_board.copy()
     else:
         temp_board = board.copy()
@@ -292,19 +286,19 @@ def explain_move():
 
     try:
         # 1. Back up to the state BEFORE the user's last move
-        if mode == 'play' and temp_board.turn == chess.WHITE and len(temp_board.move_stack) >= 2:
-            temp_board.pop() # Remove AI move
+        if mode == 'play' and len(temp_board.move_stack) >= 2:
+            engine_is_white = (player_color == 'black')
+            engine_color = chess.WHITE if engine_is_white else chess.BLACK
+            player_chess_color = chess.BLACK if player_color == 'black' else chess.WHITE
+            if temp_board.turn == player_chess_color:
+                temp_board.pop()  # Remove AI's last move
             
         user_move = temp_board.pop()
-        
-        # --- THIS IS YOUR 'BOARD_BEFORE_MOVE' ---
-        # temp_board is now exactly the state before the user moved.
         
         # 2. Get data BEFORE the move
         fen_before = temp_board.fen()
         prev_eval = get_evaluation(fen_before)
         
-        # NEW: Find the Missed Best Move (what the engine wanted you to do)
         missed_best_move = "None"
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
             info_before = engine.analyse(temp_board, chess.engine.Limit(time=0.1))
@@ -327,7 +321,6 @@ def explain_move():
             if "pv" in info_after and len(info_after["pv"]) > 0:
                 punishment_move = temp_board.san(info_after["pv"][0])
 
-        # --- IDENTIFY THE ASSASSIN ---
         punishing_piece = "opponent"
         if punishment_move != "None":
             p_char = punishment_move[0]
@@ -351,7 +344,7 @@ def explain_move():
 
             if isinstance(current_eval, str) and "M-" in current_eval:
                 category = "Missing Checkmate"
-            elif p_val > 2.5 and eval_delta < -2.0: # Significant drop from a winning position
+            elif p_val > 2.5 and eval_delta < -2.0:
                 category = "Missed Win"
             elif eval_delta <= -3.0:
                 category = "Blunder"
@@ -365,9 +358,10 @@ def explain_move():
         except Exception as math_e:
             print(f"Eval Math Error: {math_e}")
 
-        # 6. Final Prompt Construction
-        # Use punishment_move for the logic now that we've cleaned the code
         ai_facing_punishment = punishment_move if category not in ["Opening/Book Move", "Good/Positional Move"] else "N/A"
+
+        # FIX 3: include game PGN as context so the AI understands what led to this moment
+        pgn_context = f"\n        - Game PGN So Far: {game_pgn}" if game_pgn else ""
 
         prompt = f"""
         DATA:
@@ -378,7 +372,7 @@ def explain_move():
         - Engine's Best Next Move (Opponent Response): {ai_facing_punishment}
         - Punishing Piece: {punishing_piece}
         - Missed Best Move: {missed_best_move}
-        - Current Board FEN: {fen_after}
+        - Current Board FEN: {fen_after}{pgn_context}
 
         TASK:
         Based on the 'Move Category' of [{category}], explain the move {san_move}. 
@@ -407,8 +401,8 @@ def explain_move():
 def best_move():
     data = request.json
     current_fen = data.get("fen")
+    game_pgn = data.get("pgn", "")  # FIX 3: receive full PGN for context
 
-    # Calculate the actual move number (e.g., Move 1, Move 12)
     move_number = (len(board.move_stack) // 2) + 1
     
     temp_board = chess.Board(current_fen) if current_fen else chess.Board()
@@ -416,21 +410,16 @@ def best_move():
     if temp_board.is_game_over():
         return jsonify({"status": "error", "message": "The game is already over!"})
     
-
     material_status = get_material_score(temp_board)
     tactical_facts = get_tactical_facts(temp_board)
 
     try:
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
-            # We use depth=15 or a slightly longer time to get a solid tactical line
             info = engine.analyse(temp_board, chess.engine.Limit(time=1.5))
             
-            # 1. Get the primary move
             best_move_obj = info["pv"][0]
             san_move = temp_board.san(best_move_obj)
             
-            # 2. Extract the "Expected Continuation" (The next 3-4 moves)
-            # This is the secret sauce that stops the AI from hallucinating
             pv_san = []
             test_board = temp_board.copy()
             
@@ -441,10 +430,8 @@ def best_move():
                 
             expected_line_list = "\n".join([f"- {m}" for m in pv_san])
 
-            # NEW: Get the game history to identify openings
             game_history = []
             hist_board = chess.Board()
-            # Use the global board to get the moves played so far
             for move in board.move_stack:
                 game_history.append(hist_board.san(move))
                 hist_board.push(move)
@@ -453,9 +440,10 @@ def best_move():
             moving_piece = temp_board.piece_at(best_move_obj.from_square)
             moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize() if moving_piece else "Piece"
 
-        # 3. The newly structured prompt with the "Best Reply" rule
-        # In your route, call the function first:
         tactical_facts = get_tactical_facts(temp_board)
+
+        # FIX 3: include game PGN as context so the AI understands what led to this moment
+        pgn_context = f"\n            - Game PGN So Far: {game_pgn}" if game_pgn else ""
 
         prompt = f"""
             DATA:
@@ -465,7 +453,7 @@ def best_move():
             - Material Status: {material_status}
             - Tactical Facts (Ground Truth): {tactical_facts}
             - Engine's Expected Continuation: {expected_line_list}
-            - Current Board FEN: {temp_board.fen()}
+            - Current Board FEN: {temp_board.fen()}{pgn_context}
 
             TASK:
             Explain exactly WHY {san_move} is the best move.
@@ -487,12 +475,11 @@ def best_move():
             temperature=0.3
         )
         
-        # Inside your /best_move route in app.py
         return jsonify({
             "status": "success", 
             "move": san_move, 
-            "from_sq": best_move_obj.from_square, # Integer 0-63
-            "to_sq": best_move_obj.to_square,     # Integer 0-63
+            "from_sq": best_move_obj.from_square,
+            "to_sq": best_move_obj.to_square,
             "explanation": response.choices[0].message.content
         })
 
@@ -506,18 +493,16 @@ def sync_position():
     """
     Called by the frontend whenever the user navigates with arrow keys.
     Updates the server-side board to match the displayed FEN and returns evaluation.
-    Also accepts prev_fen so explain_move can work correctly at any position.
     """
     global board
     data = request.json
     fen = data.get('fen')
-    history = data.get('history', [])  # SAN move list up to this point
+    history = data.get('history', [])
 
     if not fen:
         return jsonify({"status": "error", "message": "No FEN provided"})
 
     try:
-        # Rebuild the board with full move history so move_stack is correct
         board = chess.Board()
         for san in history:
             move = board.parse_san(san)
@@ -526,7 +511,6 @@ def sync_position():
         evaluation = get_evaluation(board.fen())
         return jsonify({"status": "success", "evaluation": evaluation})
     except Exception as e:
-        # Fallback: just set the FEN without move history
         try:
             board = chess.Board(fen)
             evaluation = get_evaluation(fen)

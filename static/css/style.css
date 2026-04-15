@@ -92,17 +92,18 @@ body {
     padding: 10px;
     background: rgba(0,0,0,0.1);
     border-radius: 8px;
+    margin-bottom: 15px;
 }
 
 .elo-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr); /* 4 columns per row */
+    grid-template-columns: repeat(4, 1fr);
     gap: 6px;
 }
 
 .elo-btn {
     padding: 8px 2px;
-    font-size: 0.7rem; /* Compact for 7 buttons */
+    font-size: 0.7rem;
     background: #e2e8f0;
     border: none;
     border-radius: 4px;
@@ -114,6 +115,46 @@ body {
     background: #27ae60;
     color: white;
 }
+
+/* Color Selector Buttons */
+.color-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+.color-btn {
+    padding: 8px 2px;
+    font-size: 0.75rem;
+    background: #e2e8f0;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+.color-btn.active {
+    background: #27ae60;
+    color: white;
+}
+
+/* FIX 1: Start Game button */
+.start-game-btn {
+    width: 100%;
+    margin-top: 12px;
+    padding: 11px;
+    background: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 0 4px rgba(0,0,0,0.2);
+    transition: background 0.2s, transform 0.1s, box-shadow 0.1s;
+}
+.start-game-btn:hover { background: #1e8449; }
+.start-game-btn:active { transform: translateY(2px); box-shadow: 0 2px rgba(0,0,0,0.2); }
 
 /* Modern Chatbox */
 .chat-wrapper {
@@ -168,12 +209,11 @@ body {
 #game-over-overlay h2 { margin: 0; color: #ff4d4d; }
 #game-over-overlay p { margin: 10px 0; font-size: 1.2rem; }
 
-/* Pawn Promotion Overlay - completely hidden by default */
+/* Pawn Promotion Overlay */
 #promotion-overlay {
     display: none;
     position: absolute;
     top: 0; left: 0; width: 100%; height: 100%;
-    /* Change rgba(0, 0, 0, 0.7) (dark) to rgba(255, 255, 255, 0.7) (bright white) */
     background: rgba(255, 255, 255, 0.7); 
     z-index: 105;
     justify-content: center;
@@ -199,15 +239,15 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    font-size: 45px;      /* Made them slightly larger */
-    color: white;         /* This turns the icons white */
-    border: 2px solid #475569; /* Gives the boxes a slight defined edge */
+    font-size: 45px;
+    color: white;
+    border: 2px solid #475569;
     transition: all 0.2s;
 }
 
 .promo-piece:hover {
-    background-color: #4f46e5; /* A nice "active" blue when you hover */
-    transform: scale(1.1);      /* Makes it feel responsive */
+    background-color: #4f46e5;
+    transform: scale(1.1);
     border-color: white;
 }
 
@@ -218,7 +258,7 @@ body {
     margin-bottom: 15px;
     display: flex;
     flex-direction: column;
-    max-height: 180px; /* Limits height so it doesn't push the chat away */
+    max-height: 180px;
     border: 1px solid #334155;
     overflow: hidden;
 }
@@ -235,15 +275,14 @@ body {
 .move-grid {
     padding: 10px;
     display: grid;
-    grid-template-columns: 35px 1fr 1fr; /* Turn # | White | Black */
+    grid-template-columns: 35px 1fr 1fr;
     gap: 6px;
-    overflow-y: auto; /* Adds a scrollbar if the game gets long */
+    overflow-y: auto;
     max-height: 140px;
     font-family: 'Courier New', Courier, monospace;
     font-size: 0.9rem;
 }
 
-/* Styling the individual moves */
 .move-num { 
     color: #64748b; 
     font-weight: bold; 
@@ -260,18 +299,16 @@ body {
     border: 1px solid transparent;
 }
 
-/* Makes the latest move look slightly highlighted */
 .move-val:last-child {
     border-color: #10b981; 
 }
 
-/* This ensures the arrow SVG aligns perfectly with the board */
 #myBoard {
     position: relative;
 }
 
 #arrow-svg {
-    z-index: 10; /* Ensures arrow stays above the squares but below the pieces if needed */
+    z-index: 10;
 }
 
 .move-val.current-move {

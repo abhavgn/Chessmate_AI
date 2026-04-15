@@ -88,6 +88,14 @@
                     <button class="elo-btn" onclick="setElo(2400, this)">2400</button>
                     <button class="elo-btn" onclick="setElo(2800, this)">2800+</button>
                 </div>
+                <p style="color: #64748b; font-size: 0.8rem; margin: 10px 0 8px; font-weight: bold;">PLAY AS:</p>
+                <div class="color-grid">
+                    <button class="color-btn active" id="color-white" onclick="setColor('white', this)">♔ White</button>
+                    <button class="color-btn" id="color-black" onclick="setColor('black', this)">♚ Black</button>
+                    <button class="color-btn" id="color-random" onclick="setColor('random', this)">🎲 Random</button>
+                </div>
+                <!-- FIX 1: Start button — game only begins when user clicks this -->
+                <button class="start-game-btn" onclick="startNewGame()">▶ Start Game</button>
             </div>
 
             <!-- PGN Upload Button — Analysis mode only -->
@@ -141,17 +149,16 @@
         var game = new Chess();
         var currentGameMode = 'analysis'; 
         let currentElo = 200;
+        let playerColor = 'white'; // 'white', 'black', or 'random'
 
-        let moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1']; // The starting FEN
+        let moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
         let currentMoveIndex = 0;
 
-        // 1. Initialize the board configuration
         var config = {
-            draggable: true,      // Allows you to drag pieces
-            position: 'start',    // Sets the board to the starting position
-            onDrop: onDrop,       // Links to your existing move logic
+            draggable: true,
+            position: 'start',
+            onDrop: onDrop,
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' 
-            // ^ This uses the default online images so you don't have to worry about local paths yet
         };
 
         board = Chessboard('myBoard', config);
@@ -180,16 +187,20 @@
             currentElo = elo; 
             document.querySelectorAll('.elo-btn').forEach(btn => btn.classList.remove('active'));
             element.classList.add('active');
+            // FIX 1: Do NOT call startNewGame() here — user must click Start Game
+        }
+
+        function setColor(color, element) {
+            playerColor = color;
+            document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+            element.classList.add('active');
+            // FIX 1: Do NOT call startNewGame() here — user must click Start Game
         }
 
         function requestGameSummary() {
-            // 1. Hide the overlay so the user can see the chat
             $('#game-over-overlay').hide();
-            
-            // 2. Add the user prompt to the chat
             appendChatMessage("user", "Can you give me a summary of that game?");
             
-            // 3. Show the loading state
             const chatHistory = document.getElementById('chat-history');
             const loadingDiv = document.createElement('div');
             loadingDiv.id = "coach-loading"; 
@@ -198,7 +209,6 @@
             chatHistory.appendChild(loadingDiv);
             chatHistory.scrollTop = chatHistory.scrollHeight;
 
-            // 4. Fetch the full PGN and send it to the new backend route
             const gamePgn = game.pgn();
 
             fetch("/game_summary", {
@@ -206,7 +216,8 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
                     pgn: gamePgn,
-                    bot_elo: currentElo // Passing the Elo gives the Coach context on the difficulty
+                    bot_elo: currentElo,
+                    player_color: playerColor  // FIX 2: pass player color so backend knows who is who
                 })
             })
             .then(res => res.json())
@@ -215,7 +226,7 @@
                 if (loader) loader.remove();
 
                 if (data.status === "success") {
-                    appendChatMessage("bot", data.summary, true); // True triggers your typewriter effect
+                    appendChatMessage("bot", data.summary, true);
                 } else {
                     appendChatMessage("bot", "Oops: " + data.message, true);
                 }
@@ -261,14 +272,13 @@
         function updateMoveList() {
             const moveListElement = document.getElementById('move-list');
             const history = game.history();
-            let html = ''; // Start with an empty string
+            let html = '';
 
             for (let i = 0; i < history.length; i += 2) {
                 const turnNum = Math.floor(i / 2) + 1;
                 const whiteMove = history[i];
                 const blackMove = history[i + 1] ? history[i + 1] : '';
 
-                // We assign an index that matches our moveHistoryFens array
                 const whiteIndex = i + 1;
                 const blackIndex = i + 2;
 
@@ -281,12 +291,10 @@
             }
 
             moveListElement.innerHTML = html;
-            // Auto-scroll to bottom only if we are at the latest move
             if (currentMoveIndex === moveHistoryFens.length - 1) {
                 moveListElement.scrollTop = moveListElement.scrollHeight;
             }
             
-            // Refresh highlight in case we just added a move
             highlightCurrentMove();
         }
 
@@ -296,7 +304,9 @@
             clearArrows();
 
             if (source === target) return;
-            if (currentGameMode === 'play' && game.turn() === 'b') return 'snapback';
+
+            const engineColor = (playerColor === 'white') ? 'b' : 'w';
+            if (currentGameMode === 'play' && game.turn() === engineColor) return 'snapback';
 
             const piece = game.get(source);
             if (piece && piece.type === 'p' && (target[1] === '8' || target[1] === '1')) {
@@ -337,7 +347,10 @@
                     }
 
                     if (currentGameMode === 'play') {
-                        setTimeout(makeEngineMove, 250);
+                        const engineColor = (playerColor === 'white') ? 'b' : 'w';
+                        if (game.turn() === engineColor) {
+                            setTimeout(makeEngineMove, 250);
+                        }
                     }
                 } else {
                     board.position(game.fen()); 
@@ -413,23 +426,35 @@
             }
         }
 
-        function resetGame() {
+        function startNewGame() {
             clearArrows();
-
-            // Inside resetGame(), add these two lines:
             moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
             currentMoveIndex = 0;
 
+            // Resolve random color choice at the moment Start is clicked
+            const resolvedColor = (playerColor === 'random')
+                ? (Math.random() < 0.5 ? 'white' : 'black')
+                : playerColor;
+
             fetch('/reset', { method: 'POST' })
             .then(res => res.json())
-            .then(data => {
-                board.start();
+            .then(() => {
                 game.reset();
+                board.orientation(resolvedColor);
+                board.start();
                 updateMoveList();
                 updateEvalBar(0);
-                $('#game-over-overlay').hide(); 
-                $('.square-55d63').removeClass('highlight-check'); 
+                $('#game-over-overlay').hide();
+                $('.square-55d63').removeClass('highlight-check');
+
+                if (currentGameMode === 'play' && resolvedColor === 'black') {
+                    setTimeout(makeEngineMove, 400);
+                }
             });
+        }
+
+        function resetGame() {
+            startNewGame();
         }
 
         function clearArrows() {
@@ -443,8 +468,13 @@
             const squareSize = boardRect.width / 8;
 
             function getCoords(squareIndex) {
-                const col = squareIndex % 8;
-                const row = 7 - Math.floor(squareIndex / 8);
+                const isFlipped = board.orientation() === 'black';
+                let col = squareIndex % 8;
+                let row = 7 - Math.floor(squareIndex / 8);
+                if (isFlipped) {
+                    col = 7 - col;
+                    row = 7 - row;
+                }
                 return {
                     x: col * squareSize + squareSize / 2,
                     y: row * squareSize + squareSize / 2
@@ -465,29 +495,22 @@
             }
             svg.innerHTML = '';
 
-            // 1. Calculate the angle of the line
             const angle = Math.atan2(end.y - start.y, end.x - start.x);
-            
-            // 2. Shorten the line slightly so it doesn't poke out the front of the arrowhead
             const headLength = squareSize * 0.4; 
             const lineEndX = end.x - (headLength * 0.5) * Math.cos(angle);
             const lineEndY = end.y - (headLength * 0.5) * Math.sin(angle);
 
-            // 3. Draw the Line (The Shaft)
             const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
             line.setAttribute("x1", start.x);
             line.setAttribute("y1", start.y);
             line.setAttribute("x2", lineEndX);
             line.setAttribute("y2", lineEndY);
-            line.setAttribute("stroke", "rgba(50, 200, 50, 0.5)"); // Cleaner green
-            line.setAttribute("stroke-width", squareSize * 0.15);  // Proportional thickness
+            line.setAttribute("stroke", "rgba(50, 200, 50, 0.5)");
+            line.setAttribute("stroke-width", squareSize * 0.15);
             line.setAttribute("stroke-linecap", "round");
             svg.appendChild(line);
 
-            // 4. Draw the Arrowhead (The Triangle)
             const head = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-            
-            // Calculate 3 points of the triangle relative to 'end'
             const x1 = end.x;
             const y1 = end.y;
             const x2 = end.x - headLength * Math.cos(angle - Math.PI / 6);
@@ -501,18 +524,14 @@
         }
 
         function highlightCurrentMove() {
-            // 1. Remove highlight from everyone
             const allMoves = document.querySelectorAll('.move-val');
             allMoves.forEach(move => move.classList.remove('current-move'));
 
-            // 2. Find the move that matches our current view index
             if (currentMoveIndex > 0) {
                 const activeMove = document.querySelector(`.move-val[data-index="${currentMoveIndex}"]`);
                 
                 if (activeMove) {
                     activeMove.classList.add('current-move');
-                    
-                    // 3. Smooth scroll so the move is always visible
                     activeMove.scrollIntoView({
                         behavior: 'smooth',
                         block: 'nearest'
@@ -531,7 +550,7 @@
             msgDiv.style.marginBottom = '10px';
             msgDiv.style.fontSize = '0.9rem';
             msgDiv.style.lineHeight = '1.4';
-            msgDiv.style.whiteSpace = 'pre-wrap'; // Keeps formatting neat
+            msgDiv.style.whiteSpace = 'pre-wrap';
 
             const prefix = sender === 'bot' ? '<strong>🤖 Coach:</strong> ' : '<strong>👤 You:</strong> ';
 
@@ -539,32 +558,29 @@
                 msgDiv.style.background = '#f1f5f9'; 
                 msgDiv.style.color = '#334155';
 
-                // --- Retro Typewriter Effect Logic ---
                 if (animate) {
                     msgDiv.innerHTML = prefix;
                     chatHistory.appendChild(msgDiv);
                     
                     let i = 0;
-                    // Remove markdown bolding (**) for a cleaner chat interface
                     const cleanText = text.replace(/\*\*/g, ''); 
                     
                     function typeWriter() {
                         if (i < cleanText.length) {
                             msgDiv.innerHTML += cleanText.charAt(i);
                             i++;
-                            chatHistory.scrollTop = chatHistory.scrollHeight; // Auto-scroll
-                            setTimeout(typeWriter, 20); // 20ms delay per character
+                            chatHistory.scrollTop = chatHistory.scrollHeight;
+                            setTimeout(typeWriter, 20);
                         }
                     }
                     typeWriter();
-                    return; // Exit here so it doesn't print instantly below
+                    return;
                 }
             } else {
                 msgDiv.style.background = '#e0f2fe'; 
                 msgDiv.style.color = '#0369a1';
             }
             
-            // Standard instant load (used for User messages)
             msgDiv.innerHTML = prefix + text;
             chatHistory.appendChild(msgDiv);
             chatHistory.scrollTop = chatHistory.scrollHeight; 
@@ -572,7 +588,6 @@
 
         // 1. Explain Move Button Action
         document.getElementById('explain-btn').addEventListener('click', function() {
-            // Use history up to the current view position (not always the full game)
             const historyAtView = game.history().slice(0, currentMoveIndex);
 
             if (historyAtView.length === 0) {
@@ -596,7 +611,9 @@
                 body: JSON.stringify({ 
                     mode: currentGameMode,
                     fen: moveHistoryFens[currentMoveIndex],
-                    history: historyAtView   // history UP TO the viewed position
+                    history: historyAtView,
+                    player_color: playerColor,
+                    pgn: game.pgn()   // FIX 3: send full PGN for game context
                 })
             })
             .then(res => res.json())
@@ -627,7 +644,10 @@
             fetch("/best_move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fen: moveHistoryFens[currentMoveIndex] })  // current view position
+                body: JSON.stringify({
+                    fen: moveHistoryFens[currentMoveIndex],
+                    pgn: game.pgn()   // FIX 3: send full PGN for game context
+                })
             })
             .then(res => res.json())
             .then(data => {
@@ -638,7 +658,7 @@
                     drawBestMoveArrow(data.from_sq, data.to_sq);
 
                     const combinedMessage = `I recommend ${data.move}.\n\n${data.explanation}`;
-                    appendChatMessage("bot", combinedMessage, true); // true = Typewriter effect!
+                    appendChatMessage("bot", combinedMessage, true);
                 } else {
                     appendChatMessage("bot", "Oops: " + data.message, true);
                 }
@@ -670,7 +690,6 @@
                 }
             }
 
-            // Handle the Overlay visibility
             if (e.key === 'ArrowRight' && currentMoveIndex === moveHistoryFens.length - 1) {
                 if (game.game_over()) {
                     $('#game-over-overlay').css('display', 'flex');
@@ -680,9 +699,8 @@
             clearArrows();
             $('.square-55d63').removeClass('highlight-check');
         });
-        // ─── SYNC POSITION WITH BACKEND (arrow key navigation) ───────────
+
         function syncPositionWithBackend() {
-            // Get the move history up to the current view index
             const fullHistory = game.history();
             const historyAtIndex = fullHistory.slice(0, currentMoveIndex);
             const currentFen = moveHistoryFens[currentMoveIndex];
@@ -711,7 +729,6 @@
         }
 
         function closePGNModal(e) {
-            // Only close if clicking the dark backdrop itself, not the modal box
             if (e.target === document.getElementById('pgn-modal-overlay')) {
                 closePGNModalDirect();
             }
@@ -734,11 +751,9 @@
                 return;
             }
 
-            // Reset everything cleanly
             fetch('/reset', { method: 'POST' }).then(() => {
                 game.load_pgn(trimmed);
 
-                // Rebuild FEN history so arrow keys work
                 moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
                 const replayBoard = new Chess();
                 for (const move of game.history()) {
@@ -754,7 +769,6 @@
                 $('.square-55d63').removeClass('highlight-check');
                 clearArrows();
 
-                // Clear the input fields
                 document.getElementById('pgn-text-input').value = '';
                 document.getElementById('pgn-file-input').value = '';
                 document.getElementById('pgn-drop-label').textContent = '🗂 Drag & drop a .pgn file here';
@@ -769,7 +783,6 @@
             loadPGNString(text);
         }
 
-        // File input (Browse button)
         document.getElementById('pgn-file-input').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -778,7 +791,6 @@
             reader.readAsText(file);
         });
 
-        // Drag-and-drop onto the drop zone
         const dropZone = document.getElementById('pgn-drop-zone');
 
         dropZone.addEventListener('dragover', function(e) {
@@ -804,8 +816,6 @@
             reader.readAsText(file);
         });
 
-
-
         function showToast(message, color) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
@@ -827,7 +837,6 @@
             navigator.clipboard.writeText(pgn).then(() => {
                 showToast('✅ PGN copied to clipboard!');
             }).catch(() => {
-                // Fallback for older browsers
                 const el = document.createElement('textarea');
                 el.value = pgn;
                 document.body.appendChild(el);
@@ -844,7 +853,6 @@
                 showToast('❌ No moves to share yet!', '#c0392b');
                 return;
             }
-            // Encode the PGN into a URL parameter
             const encoded = encodeURIComponent(pgn);
             const shareUrl = window.location.origin + window.location.pathname + '?pgn=' + encoded;
 
@@ -862,7 +870,6 @@
         }
 
         // ─── AUTO-LOAD FROM SHARED LINK ──────────────────────────────────
-        // If the page URL has ?pgn=..., load that game automatically
         (function loadFromUrl() {
             const params = new URLSearchParams(window.location.search);
             const pgnParam = params.get('pgn');
@@ -876,7 +883,6 @@
                 return;
             }
 
-            // Rebuild the move history FEN list so arrow keys work
             moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
             const replayBoard = new Chess();
             const moves = game.history();
@@ -885,18 +891,15 @@
                 moveHistoryFens.push(replayBoard.fen());
             }
 
-            // Jump to the last position
             currentMoveIndex = moveHistoryFens.length - 1;
             board.position(game.fen());
             updateMoveList();
             updateEvalBar(0);
 
-            // Switch to Analysis mode automatically
             setMode('analysis', document.querySelector('.mode-btn'));
 
             showToast('📂 Shared game loaded! Use ← → to review.');
 
-            // Clean the URL so it doesn't re-trigger on refresh
             window.history.replaceState({}, '', window.location.pathname);
         })();
 
