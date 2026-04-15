@@ -90,18 +90,31 @@
                 </div>
             </div>
 
-            <!-- PGN Upload Panel — Analysis mode only -->
-            <div id="pgn-upload-panel">
-                <div class="pgn-upload-header">📂 Load a Game (PGN)</div>
-                <div class="pgn-upload-body">
-                    <div class="pgn-drop-zone" id="pgn-drop-zone">
-                        <span id="pgn-drop-label">Drop a .pgn file here or</span>
-                        <label class="pgn-file-label" for="pgn-file-input">Browse</label>
-                        <input type="file" id="pgn-file-input" accept=".pgn" style="display:none;">
+            <!-- PGN Upload Button — Analysis mode only -->
+            <button id="pgn-upload-btn" onclick="openPGNModal()" class="pgn-upload-trigger-btn">
+                📂 Load a Game (PGN)
+            </button>
+
+            <!-- PGN Upload Modal Overlay -->
+            <div id="pgn-modal-overlay" onclick="closePGNModal(event)">
+                <div class="pgn-modal-box">
+                    <div class="pgn-modal-header">
+                        <span>📂 Load a Game (PGN)</span>
+                        <button class="pgn-modal-close" onclick="closePGNModalDirect()">✕</button>
                     </div>
-                    <div style="text-align:center; color:#64748b; font-size:0.75rem; margin: 6px 0;">— or paste PGN text —</div>
-                    <textarea id="pgn-text-input" placeholder='Paste PGN here... e.g. 1. e4 e5 2. Nf3 Nc6' rows="3"></textarea>
-                    <button class="pgn-load-btn" onclick="loadPGNFromInput()">Load Game ▶</button>
+                    <div class="pgn-modal-body">
+                        <div class="pgn-drop-zone" id="pgn-drop-zone">
+                            <span id="pgn-drop-label">🗂 Drag & drop a .pgn file here</span>
+                        </div>
+                        <div class="pgn-modal-or">— or —</div>
+                        <label class="pgn-browse-big-btn" for="pgn-file-input">
+                            📁 Browse Files
+                        </label>
+                        <input type="file" id="pgn-file-input" accept=".pgn" style="display:none;">
+                        <div class="pgn-modal-or">— or paste PGN text —</div>
+                        <textarea id="pgn-text-input" placeholder='e.g. 1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 d5...' rows="4"></textarea>
+                        <button class="pgn-load-btn" onclick="loadPGNFromInput()">Load Game ▶</button>
+                    </div>
                 </div>
             </div>
 
@@ -150,16 +163,16 @@
 
             const evalContainer = document.getElementById('eval-bar-container');
             const eloPanel = document.getElementById('elo-panel');
-            const pgnUploadPanel = document.getElementById('pgn-upload-panel');
+            const pgnUploadBtn = document.getElementById('pgn-upload-btn');
 
             if (mode === 'play') {
                 evalContainer.style.display = 'none'; 
                 eloPanel.style.display = 'block';
-                pgnUploadPanel.style.display = 'none';
+                pgnUploadBtn.style.display = 'none';
             } else {
                 evalContainer.style.display = 'block'; 
                 eloPanel.style.display = 'none';
-                pgnUploadPanel.style.display = 'block';
+                pgnUploadBtn.style.display = 'block';
             }
         }
 
@@ -559,6 +572,14 @@
 
         // 1. Explain Move Button Action
         document.getElementById('explain-btn').addEventListener('click', function() {
+            // Use history up to the current view position (not always the full game)
+            const historyAtView = game.history().slice(0, currentMoveIndex);
+
+            if (historyAtView.length === 0) {
+                appendChatMessage("bot", "Make at least one move first!", true);
+                return;
+            }
+
             appendChatMessage("user", "Can you explain my last move?");
             
             const chatHistory = document.getElementById('chat-history');
@@ -572,11 +593,10 @@
             fetch("/explain_move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                // ✅ FIX: Send the board state and history to the backend
                 body: JSON.stringify({ 
                     mode: currentGameMode,
-                    fen: game.fen(),
-                    history: game.history()
+                    fen: moveHistoryFens[currentMoveIndex],
+                    history: historyAtView   // history UP TO the viewed position
                 })
             })
             .then(res => res.json())
@@ -585,7 +605,7 @@
                 if (loader) loader.remove();
 
                 if (data.status === "success") {
-                    appendChatMessage("bot", data.explanation, true); // true = Typewriter effect!
+                    appendChatMessage("bot", data.explanation, true);
                 } else {
                     appendChatMessage("bot", "Oops: " + data.message, true);
                 }
@@ -607,7 +627,7 @@
             fetch("/best_move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fen: game.fen() }) // <--- Send the actual FEN!
+                body: JSON.stringify({ fen: moveHistoryFens[currentMoveIndex] })  // current view position
             })
             .then(res => res.json())
             .then(data => {
@@ -632,18 +652,21 @@
 
         document.addEventListener('keydown', function(e) {
             if (document.activeElement.tagName === 'INPUT') return;
+            if (document.activeElement.tagName === 'TEXTAREA') return;
 
             if (e.key === 'ArrowLeft') {
                 if (currentMoveIndex > 0) {
                     currentMoveIndex--;
                     board.position(moveHistoryFens[currentMoveIndex]);
-                    highlightCurrentMove(); // <--- CRITICAL
+                    highlightCurrentMove();
+                    syncPositionWithBackend();
                 }
             } else if (e.key === 'ArrowRight') {
                 if (currentMoveIndex < moveHistoryFens.length - 1) {
                     currentMoveIndex++;
                     board.position(moveHistoryFens[currentMoveIndex]);
-                    highlightCurrentMove(); // <--- CRITICAL
+                    highlightCurrentMove();
+                    syncPositionWithBackend();
                 }
             }
 
@@ -657,6 +680,43 @@
             clearArrows();
             $('.square-55d63').removeClass('highlight-check');
         });
+        // ─── SYNC POSITION WITH BACKEND (arrow key navigation) ───────────
+        function syncPositionWithBackend() {
+            // Get the move history up to the current view index
+            const fullHistory = game.history();
+            const historyAtIndex = fullHistory.slice(0, currentMoveIndex);
+            const currentFen = moveHistoryFens[currentMoveIndex];
+
+            fetch('/sync_position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fen: currentFen, history: historyAtIndex })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success' && currentGameMode === 'analysis') {
+                    updateEvalBar(data.evaluation);
+                }
+            })
+            .catch(err => console.error('Sync error:', err));
+        }
+
+        // ─── PGN MODAL OPEN / CLOSE ──────────────────────────────────────
+        function openPGNModal() {
+            document.getElementById('pgn-modal-overlay').style.display = 'flex';
+        }
+
+        function closePGNModalDirect() {
+            document.getElementById('pgn-modal-overlay').style.display = 'none';
+        }
+
+        function closePGNModal(e) {
+            // Only close if clicking the dark backdrop itself, not the modal box
+            if (e.target === document.getElementById('pgn-modal-overlay')) {
+                closePGNModalDirect();
+            }
+        }
+
         // ─── PGN UPLOAD / LOAD ───────────────────────────────────────────
 
         function loadPGNString(pgn) {
@@ -697,7 +757,8 @@
                 // Clear the input fields
                 document.getElementById('pgn-text-input').value = '';
                 document.getElementById('pgn-file-input').value = '';
-                document.getElementById('pgn-drop-label').textContent = 'Drop a .pgn file here or';
+                document.getElementById('pgn-drop-label').textContent = '🗂 Drag & drop a .pgn file here';
+                closePGNModalDirect();
 
                 showToast('✅ Game loaded! Use ← → to review.');
             });

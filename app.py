@@ -271,11 +271,24 @@ def explain_move():
     global board
     data = request.json or {}
     mode = data.get("mode", "analysis")
-    
-    if len(board.move_stack) == 0:
+    frontend_history = data.get("history", [])  # Full SAN history up to current view position
+
+    # Rebuild board from the frontend's history (works for PGN loads + live games)
+    if frontend_history:
+        temp_board = chess.Board()
+        for san in frontend_history:
+            try:
+                move = temp_board.parse_san(san)
+                temp_board.push(move)
+            except Exception:
+                pass
+        # Sync global board too
+        board = temp_board.copy()
+    else:
+        temp_board = board.copy()
+
+    if len(temp_board.move_stack) == 0:
         return jsonify({"status": "error", "message": "Make a move first!"})
-    
-    temp_board = board.copy()
 
     try:
         # 1. Back up to the state BEFORE the user's last move
@@ -487,6 +500,40 @@ def best_move():
         print(f"!!! BEST MOVE ERROR: {str(e)}")
         return jsonify({"status": "error", "message": "Failed to suggest a move."})
     
+
+@app.route('/sync_position', methods=['POST'])
+def sync_position():
+    """
+    Called by the frontend whenever the user navigates with arrow keys.
+    Updates the server-side board to match the displayed FEN and returns evaluation.
+    Also accepts prev_fen so explain_move can work correctly at any position.
+    """
+    global board
+    data = request.json
+    fen = data.get('fen')
+    history = data.get('history', [])  # SAN move list up to this point
+
+    if not fen:
+        return jsonify({"status": "error", "message": "No FEN provided"})
+
+    try:
+        # Rebuild the board with full move history so move_stack is correct
+        board = chess.Board()
+        for san in history:
+            move = board.parse_san(san)
+            board.push(move)
+
+        evaluation = get_evaluation(board.fen())
+        return jsonify({"status": "success", "evaluation": evaluation})
+    except Exception as e:
+        # Fallback: just set the FEN without move history
+        try:
+            board = chess.Board(fen)
+            evaluation = get_evaluation(fen)
+            return jsonify({"status": "success", "evaluation": evaluation})
+        except Exception as e2:
+            return jsonify({"status": "error", "message": str(e2)})
+
 
 if __name__ == '__main__':
     app.run(debug=True)
