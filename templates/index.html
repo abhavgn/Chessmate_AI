@@ -94,8 +94,9 @@
                     <button class="color-btn" id="color-black" onclick="setColor('black', this)">♚ Black</button>
                     <button class="color-btn" id="color-random" onclick="setColor('random', this)">🎲 Random</button>
                 </div>
-                <!-- FIX 1: Start button — game only begins when user clicks this -->
-                <button class="start-game-btn" onclick="startNewGame()">▶ Start Game</button>
+                <button id="start-resign-btn" class="start-game-btn" onclick="handleStartResign()">
+                    ▶ Start Game
+                </button>
             </div>
 
             <!-- PGN Upload Button — Analysis mode only -->
@@ -137,8 +138,8 @@
                     <div class="msg bot">Hello! Ready to analyze?</div>
                 </div>
                 <div class="chat-input-area">
-                    <input type="text" placeholder="Ask coach anything...">
-                    <button class="send-btn">Send</button>
+                    <input type="text" id="coach-input" placeholder="Ask coach anything... e.g. 'Is Rd8 good here?'">
+                    <button class="send-btn" id="coach-send-btn">Send</button>
                 </div>
             </div>
         </div>
@@ -150,15 +151,21 @@
         var currentGameMode = 'analysis'; 
         let currentElo = 200;
         let playerColor = 'white'; // 'white', 'black', or 'random'
+        let lastKnownEval = 0;     // tracks current eval for chat context
+        let gameInProgress = false;      // true once Start Game is clicked
+        let resignConfirmPending = false; // true after first resign click
+        let boardLocked = true;           // true until Start Game is pressed in Play AI mode
 
-        let moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
+        let moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1']; // The starting FEN
         let currentMoveIndex = 0;
 
+        // 1. Initialize the board configuration
         var config = {
-            draggable: true,
-            position: 'start',
-            onDrop: onDrop,
+            draggable: true,      // Allows you to drag pieces
+            position: 'start',    // Sets the board to the starting position
+            onDrop: onDrop,       // Links to your existing move logic
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' 
+            // ^ This uses the default online images so you don't have to worry about local paths yet
         };
 
         board = Chessboard('myBoard', config);
@@ -187,20 +194,23 @@
             currentElo = elo; 
             document.querySelectorAll('.elo-btn').forEach(btn => btn.classList.remove('active'));
             element.classList.add('active');
-            // FIX 1: Do NOT call startNewGame() here — user must click Start Game
         }
 
         function setColor(color, element) {
             playerColor = color;
             document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
             element.classList.add('active');
-            // FIX 1: Do NOT call startNewGame() here — user must click Start Game
+            // Don't auto-start — wait for the Start Game button
         }
 
         function requestGameSummary() {
+            // 1. Hide the overlay so the user can see the chat
             $('#game-over-overlay').hide();
+            
+            // 2. Add the user prompt to the chat
             appendChatMessage("user", "Can you give me a summary of that game?");
             
+            // 3. Show the loading state
             const chatHistory = document.getElementById('chat-history');
             const loadingDiv = document.createElement('div');
             loadingDiv.id = "coach-loading"; 
@@ -209,6 +219,7 @@
             chatHistory.appendChild(loadingDiv);
             chatHistory.scrollTop = chatHistory.scrollHeight;
 
+            // 4. Fetch the full PGN and send it to the new backend route
             const gamePgn = game.pgn();
 
             fetch("/game_summary", {
@@ -216,8 +227,7 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
                     pgn: gamePgn,
-                    bot_elo: currentElo,
-                    player_color: playerColor  // FIX 2: pass player color so backend knows who is who
+                    bot_elo: currentElo // Passing the Elo gives the Coach context on the difficulty
                 })
             })
             .then(res => res.json())
@@ -226,7 +236,7 @@
                 if (loader) loader.remove();
 
                 if (data.status === "success") {
-                    appendChatMessage("bot", data.summary, true);
+                    appendChatMessage("bot", data.summary, true); // True triggers your typewriter effect
                 } else {
                     appendChatMessage("bot", "Oops: " + data.message, true);
                 }
@@ -264,21 +274,25 @@
                 } else {
                     summaryBtn.style.display = 'none';
                 }
-                
-                $('#game-over-overlay').css('display', 'flex');
+
+                // Reset the Start/Resign button since game is over
+                gameInProgress = false;
+                boardLocked = true;
+                setStartResignBtn('start');
             }
         }
 
         function updateMoveList() {
             const moveListElement = document.getElementById('move-list');
             const history = game.history();
-            let html = '';
+            let html = ''; // Start with an empty string
 
             for (let i = 0; i < history.length; i += 2) {
                 const turnNum = Math.floor(i / 2) + 1;
                 const whiteMove = history[i];
                 const blackMove = history[i + 1] ? history[i + 1] : '';
 
+                // We assign an index that matches our moveHistoryFens array
                 const whiteIndex = i + 1;
                 const blackIndex = i + 2;
 
@@ -291,20 +305,26 @@
             }
 
             moveListElement.innerHTML = html;
+            // Auto-scroll to bottom only if we are at the latest move
             if (currentMoveIndex === moveHistoryFens.length - 1) {
                 moveListElement.scrollTop = moveListElement.scrollHeight;
             }
             
+            // Refresh highlight in case we just added a move
             highlightCurrentMove();
         }
 
         function onDrop(source, target) {
+            // Block all moves in Play AI mode until Start Game is pressed
+            if (currentGameMode === 'play' && boardLocked) return 'snapback';
+
             if (currentMoveIndex !== moveHistoryFens.length - 1) return 'snapback';
 
             clearArrows();
 
             if (source === target) return;
 
+            // Block dragging when it's the engine's turn
             const engineColor = (playerColor === 'white') ? 'b' : 'w';
             if (currentGameMode === 'play' && game.turn() === engineColor) return 'snapback';
 
@@ -342,11 +362,22 @@
                     updateCheckHighlight();
                     checkGameOver();
 
+                    // If user was in "Are you sure?" resign state, revert to plain Resign
+                    if (resignConfirmPending) {
+                        resignConfirmPending = false;
+                        const btn = document.getElementById('start-resign-btn');
+                        if (btn) {
+                            btn.textContent = '🏳 Resign';
+                            btn.style.background = '';
+                        }
+                    }
+
                     if (currentGameMode === 'analysis') {
                         updateEvalBar(data.evaluation);
                     }
 
                     if (currentGameMode === 'play') {
+                        // Trigger engine if it's now the engine's turn
                         const engineColor = (playerColor === 'white') ? 'b' : 'w';
                         if (game.turn() === engineColor) {
                             setTimeout(makeEngineMove, 250);
@@ -416,6 +447,7 @@
         }
 
         function updateEvalBar(evalValue) {
+            lastKnownEval = evalValue; // keep it for chat context
             const bar = document.getElementById('eval-bar');
             if (typeof evalValue === 'string' && evalValue.startsWith('M')) {
                 bar.style.height = evalValue.includes('-') ? '0%' : '100%';
@@ -426,12 +458,59 @@
             }
         }
 
+        function handleStartResign() {
+            if (!gameInProgress) {
+                // Start the game
+                startNewGame();
+            } else {
+                if (!resignConfirmPending) {
+                    // First click — ask "Are you sure?" on the button itself
+                    resignConfirmPending = true;
+                    const btn = document.getElementById('start-resign-btn');
+                    if (btn) {
+                        btn.textContent = '❓ Are you sure?';
+                        btn.style.background = '#e67e22'; // orange warning color
+                    }
+                } else {
+                    // Second click — actually resign
+                    resignConfirmPending = false;
+                    const winnerColor = playerColor === 'white' ? 'Black' : 'White';
+                    $('#end-title').text('You Resigned');
+                    $('#end-subtitle').text(winnerColor + ' Wins');
+                    $('#game-over-overlay').css('display', 'flex');
+                    const summaryBtn = document.querySelector('#game-over-overlay .primary');
+                    if (summaryBtn) summaryBtn.style.display = 'inline-block';
+                    setStartResignBtn('start');
+                    gameInProgress = false;
+                    boardLocked = true;
+                }
+            }
+        }
+
+        function setStartResignBtn(state) {
+            const btn = document.getElementById('start-resign-btn');
+            if (!btn) return;
+            resignConfirmPending = false; // always clear pending state
+            btn.style.background = '';    // clear any inline override (orange)
+            if (state === 'start') {
+                btn.textContent = '▶ Start Game';
+                btn.className = 'start-game-btn';
+                // Re-enable ELO and color buttons
+                document.querySelectorAll('.elo-btn, .color-btn').forEach(b => b.disabled = false);
+            } else {
+                btn.textContent = '🏳 Resign';
+                btn.className = 'resign-game-btn';
+                // Lock ELO and color buttons during game
+                document.querySelectorAll('.elo-btn, .color-btn').forEach(b => b.disabled = true);
+            }
+        }
+
         function startNewGame() {
             clearArrows();
             moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
             currentMoveIndex = 0;
 
-            // Resolve random color choice at the moment Start is clicked
+            // Resolve random color choice
             const resolvedColor = (playerColor === 'random')
                 ? (Math.random() < 0.5 ? 'white' : 'black')
                 : playerColor;
@@ -447,6 +526,14 @@
                 $('#game-over-overlay').hide();
                 $('.square-55d63').removeClass('highlight-check');
 
+                // Mark game as started, unlock board, flip button to Resign
+                if (currentGameMode === 'play') {
+                    gameInProgress = true;
+                    boardLocked = false;
+                    setStartResignBtn('resign');
+                }
+
+                // If playing as Black, engine goes first
                 if (currentGameMode === 'play' && resolvedColor === 'black') {
                     setTimeout(makeEngineMove, 400);
                 }
@@ -454,6 +541,10 @@
         }
 
         function resetGame() {
+            gameInProgress = false;
+            boardLocked = true;
+            resignConfirmPending = false;
+            setStartResignBtn('start');
             startNewGame();
         }
 
@@ -471,6 +562,7 @@
                 const isFlipped = board.orientation() === 'black';
                 let col = squareIndex % 8;
                 let row = 7 - Math.floor(squareIndex / 8);
+                // When board is flipped, mirror both axes
                 if (isFlipped) {
                     col = 7 - col;
                     row = 7 - row;
@@ -495,22 +587,29 @@
             }
             svg.innerHTML = '';
 
+            // 1. Calculate the angle of the line
             const angle = Math.atan2(end.y - start.y, end.x - start.x);
+            
+            // 2. Shorten the line slightly so it doesn't poke out the front of the arrowhead
             const headLength = squareSize * 0.4; 
             const lineEndX = end.x - (headLength * 0.5) * Math.cos(angle);
             const lineEndY = end.y - (headLength * 0.5) * Math.sin(angle);
 
+            // 3. Draw the Line (The Shaft)
             const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
             line.setAttribute("x1", start.x);
             line.setAttribute("y1", start.y);
             line.setAttribute("x2", lineEndX);
             line.setAttribute("y2", lineEndY);
-            line.setAttribute("stroke", "rgba(50, 200, 50, 0.5)");
-            line.setAttribute("stroke-width", squareSize * 0.15);
+            line.setAttribute("stroke", "rgba(50, 200, 50, 0.5)"); // Cleaner green
+            line.setAttribute("stroke-width", squareSize * 0.15);  // Proportional thickness
             line.setAttribute("stroke-linecap", "round");
             svg.appendChild(line);
 
+            // 4. Draw the Arrowhead (The Triangle)
             const head = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            
+            // Calculate 3 points of the triangle relative to 'end'
             const x1 = end.x;
             const y1 = end.y;
             const x2 = end.x - headLength * Math.cos(angle - Math.PI / 6);
@@ -524,14 +623,18 @@
         }
 
         function highlightCurrentMove() {
+            // 1. Remove highlight from everyone
             const allMoves = document.querySelectorAll('.move-val');
             allMoves.forEach(move => move.classList.remove('current-move'));
 
+            // 2. Find the move that matches our current view index
             if (currentMoveIndex > 0) {
                 const activeMove = document.querySelector(`.move-val[data-index="${currentMoveIndex}"]`);
                 
                 if (activeMove) {
                     activeMove.classList.add('current-move');
+                    
+                    // 3. Smooth scroll so the move is always visible
                     activeMove.scrollIntoView({
                         behavior: 'smooth',
                         block: 'nearest'
@@ -550,7 +653,7 @@
             msgDiv.style.marginBottom = '10px';
             msgDiv.style.fontSize = '0.9rem';
             msgDiv.style.lineHeight = '1.4';
-            msgDiv.style.whiteSpace = 'pre-wrap';
+            msgDiv.style.whiteSpace = 'pre-wrap'; // Keeps formatting neat
 
             const prefix = sender === 'bot' ? '<strong>🤖 Coach:</strong> ' : '<strong>👤 You:</strong> ';
 
@@ -558,29 +661,32 @@
                 msgDiv.style.background = '#f1f5f9'; 
                 msgDiv.style.color = '#334155';
 
+                // --- Retro Typewriter Effect Logic ---
                 if (animate) {
                     msgDiv.innerHTML = prefix;
                     chatHistory.appendChild(msgDiv);
                     
                     let i = 0;
+                    // Remove markdown bolding (**) for a cleaner chat interface
                     const cleanText = text.replace(/\*\*/g, ''); 
                     
                     function typeWriter() {
                         if (i < cleanText.length) {
                             msgDiv.innerHTML += cleanText.charAt(i);
                             i++;
-                            chatHistory.scrollTop = chatHistory.scrollHeight;
-                            setTimeout(typeWriter, 20);
+                            chatHistory.scrollTop = chatHistory.scrollHeight; // Auto-scroll
+                            setTimeout(typeWriter, 20); // 20ms delay per character
                         }
                     }
                     typeWriter();
-                    return;
+                    return; // Exit here so it doesn't print instantly below
                 }
             } else {
                 msgDiv.style.background = '#e0f2fe'; 
                 msgDiv.style.color = '#0369a1';
             }
             
+            // Standard instant load (used for User messages)
             msgDiv.innerHTML = prefix + text;
             chatHistory.appendChild(msgDiv);
             chatHistory.scrollTop = chatHistory.scrollHeight; 
@@ -588,6 +694,7 @@
 
         // 1. Explain Move Button Action
         document.getElementById('explain-btn').addEventListener('click', function() {
+            // Use history up to the current view position (not always the full game)
             const historyAtView = game.history().slice(0, currentMoveIndex);
 
             if (historyAtView.length === 0) {
@@ -611,9 +718,7 @@
                 body: JSON.stringify({ 
                     mode: currentGameMode,
                     fen: moveHistoryFens[currentMoveIndex],
-                    history: historyAtView,
-                    player_color: playerColor,
-                    pgn: game.pgn()   // FIX 3: send full PGN for game context
+                    history: historyAtView   // history UP TO the viewed position
                 })
             })
             .then(res => res.json())
@@ -644,10 +749,7 @@
             fetch("/best_move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    fen: moveHistoryFens[currentMoveIndex],
-                    pgn: game.pgn()   // FIX 3: send full PGN for game context
-                })
+                body: JSON.stringify({ fen: moveHistoryFens[currentMoveIndex] })  // current view position
             })
             .then(res => res.json())
             .then(data => {
@@ -658,7 +760,7 @@
                     drawBestMoveArrow(data.from_sq, data.to_sq);
 
                     const combinedMessage = `I recommend ${data.move}.\n\n${data.explanation}`;
-                    appendChatMessage("bot", combinedMessage, true);
+                    appendChatMessage("bot", combinedMessage, true); // true = Typewriter effect!
                 } else {
                     appendChatMessage("bot", "Oops: " + data.message, true);
                 }
@@ -690,6 +792,7 @@
                 }
             }
 
+            // Handle the Overlay visibility
             if (e.key === 'ArrowRight' && currentMoveIndex === moveHistoryFens.length - 1) {
                 if (game.game_over()) {
                     $('#game-over-overlay').css('display', 'flex');
@@ -699,8 +802,9 @@
             clearArrows();
             $('.square-55d63').removeClass('highlight-check');
         });
-
+        // ─── SYNC POSITION WITH BACKEND (arrow key navigation) ───────────
         function syncPositionWithBackend() {
+            // Get the move history up to the current view index
             const fullHistory = game.history();
             const historyAtIndex = fullHistory.slice(0, currentMoveIndex);
             const currentFen = moveHistoryFens[currentMoveIndex];
@@ -729,6 +833,7 @@
         }
 
         function closePGNModal(e) {
+            // Only close if clicking the dark backdrop itself, not the modal box
             if (e.target === document.getElementById('pgn-modal-overlay')) {
                 closePGNModalDirect();
             }
@@ -751,9 +856,11 @@
                 return;
             }
 
+            // Reset everything cleanly
             fetch('/reset', { method: 'POST' }).then(() => {
                 game.load_pgn(trimmed);
 
+                // Rebuild FEN history so arrow keys work
                 moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
                 const replayBoard = new Chess();
                 for (const move of game.history()) {
@@ -769,6 +876,7 @@
                 $('.square-55d63').removeClass('highlight-check');
                 clearArrows();
 
+                // Clear the input fields
                 document.getElementById('pgn-text-input').value = '';
                 document.getElementById('pgn-file-input').value = '';
                 document.getElementById('pgn-drop-label').textContent = '🗂 Drag & drop a .pgn file here';
@@ -783,6 +891,7 @@
             loadPGNString(text);
         }
 
+        // File input (Browse button)
         document.getElementById('pgn-file-input').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -791,6 +900,7 @@
             reader.readAsText(file);
         });
 
+        // Drag-and-drop onto the drop zone
         const dropZone = document.getElementById('pgn-drop-zone');
 
         dropZone.addEventListener('dragover', function(e) {
@@ -816,6 +926,8 @@
             reader.readAsText(file);
         });
 
+
+
         function showToast(message, color) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
@@ -837,6 +949,7 @@
             navigator.clipboard.writeText(pgn).then(() => {
                 showToast('✅ PGN copied to clipboard!');
             }).catch(() => {
+                // Fallback for older browsers
                 const el = document.createElement('textarea');
                 el.value = pgn;
                 document.body.appendChild(el);
@@ -853,6 +966,7 @@
                 showToast('❌ No moves to share yet!', '#c0392b');
                 return;
             }
+            // Encode the PGN into a URL parameter
             const encoded = encodeURIComponent(pgn);
             const shareUrl = window.location.origin + window.location.pathname + '?pgn=' + encoded;
 
@@ -870,6 +984,7 @@
         }
 
         // ─── AUTO-LOAD FROM SHARED LINK ──────────────────────────────────
+        // If the page URL has ?pgn=..., load that game automatically
         (function loadFromUrl() {
             const params = new URLSearchParams(window.location.search);
             const pgnParam = params.get('pgn');
@@ -883,6 +998,7 @@
                 return;
             }
 
+            // Rebuild the move history FEN list so arrow keys work
             moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
             const replayBoard = new Chess();
             const moves = game.history();
@@ -891,17 +1007,94 @@
                 moveHistoryFens.push(replayBoard.fen());
             }
 
+            // Jump to the last position
             currentMoveIndex = moveHistoryFens.length - 1;
             board.position(game.fen());
             updateMoveList();
             updateEvalBar(0);
 
+            // Switch to Analysis mode automatically
             setMode('analysis', document.querySelector('.mode-btn'));
 
             showToast('📂 Shared game loaded! Use ← → to review.');
 
+            // Clean the URL so it doesn't re-trigger on refresh
             window.history.replaceState({}, '', window.location.pathname);
         })();
+
+        // ─── FREE-TEXT COACH CHAT ─────────────────────────────────────────
+
+        function sendCoachMessage() {
+            const input = document.getElementById('coach-input');
+            const question = input.value.trim();
+            if (!question) return;
+
+            input.value = '';
+            appendChatMessage("user", question);
+
+            // Show loading indicator
+            const chatHistory = document.getElementById('chat-history');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = 'coach-loading';
+            loadingDiv.className = 'msg bot';
+            loadingDiv.innerHTML = '<em>Coach is thinking...</em>';
+            chatHistory.appendChild(loadingDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            // Build the full history up to the current view position
+            const fullHistory = game.history();
+            const historyAtView = fullHistory.slice(0, currentMoveIndex);
+            const currentFen   = moveHistoryFens[currentMoveIndex];
+            const moveNumber   = Math.floor(currentMoveIndex / 2) + 1;
+
+            // Reconstruct PGN up to the current view position
+            const tempGame = new Chess();
+            for (const move of historyAtView) { tempGame.move(move); }
+            const pgnAtView = tempGame.pgn();
+
+            fetch('/ask_coach', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question:     question,
+                    fen:          currentFen,
+                    pgn:          pgnAtView,
+                    history:      historyAtView,
+                    eval:         lastKnownEval,
+                    player_color: playerColor,
+                    game_mode:    currentGameMode,
+                    bot_elo:      currentGameMode === 'play' ? currentElo : null,
+                    move_number:  moveNumber
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                const loader = document.getElementById('coach-loading');
+                if (loader) loader.remove();
+
+                if (data.status === 'success') {
+                    appendChatMessage('bot', data.answer, true);
+                } else {
+                    appendChatMessage('bot', 'Sorry, coach is unavailable: ' + data.message, true);
+                }
+            })
+            .catch(() => {
+                const loader = document.getElementById('coach-loading');
+                if (loader) loader.remove();
+                appendChatMessage('bot', 'Connection dropped. Try again.', true);
+            });
+        }
+
+        // Send on button click
+        document.getElementById('coach-send-btn').addEventListener('click', sendCoachMessage);
+
+        // Send on Enter key (but NOT Shift+Enter)
+        document.getElementById('coach-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendCoachMessage();
+            }
+        });
 
     </script>
 </body>
