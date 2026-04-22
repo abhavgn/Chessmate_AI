@@ -1,0 +1,43 @@
+name: Build Windows Executable
+
+on:
+  push:
+    branches: [ "main" ] # Or whatever your default branch is
+  workflow_dispatch: # This lets you run it manually from the Actions tab
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --onefile --windowed `
+          --add-data "static;static" `
+          --add-data "templates;templates" `
+          --add-data "engines;engines" `
+          --add-data ".env;." `
+          --hidden-import "chess" `
+          --hidden-import "chess.engine" `
+          --name "Chessmate_AI_POC" `
+          app.py
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chessmate-AI-Windows-Build
+          path: dist/Chessmate_AI_POC.exe
