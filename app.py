@@ -471,7 +471,6 @@ def format_move_analysis_for_prompt(analysis, move_san):
     lines.append(f"Is Castling: {analysis['is_castling']}")
     lines.append(f"Is En Passant: {analysis['is_en_passant']}")
 
-    # FIX 1: Recapture warning now clearly names what was captured AND what recaptures
     if analysis["recapture"]:
         r = analysis["recapture"]
         captured_val = analysis.get('captured_value', 0)
@@ -682,7 +681,17 @@ def best_move():
             test_board = temp_board.copy()
             for m in info["pv"][:4]:
                 turn_label = "White" if test_board.turn == chess.WHITE else "Black"
-                pv_san.append(f"{turn_label} plays {test_board.san(m)}")
+                # Annotate captures with exact piece name so GPT cannot guess wrong
+                if test_board.is_capture(m):
+                    captured = test_board.piece_at(m.to_square)
+                    if captured:
+                        cap_name = chess.piece_name(captured.piece_type).capitalize()
+                        cap_sq   = chess.square_name(m.to_square)
+                        pv_san.append(f"{turn_label} plays {test_board.san(m)} (capturing the {cap_name} on {cap_sq})")
+                    else:
+                        pv_san.append(f"{turn_label} plays {test_board.san(m)}")
+                else:
+                    pv_san.append(f"{turn_label} plays {test_board.san(m)}")
                 test_board.push(m)
             expected_line_list = "\n".join([f"- {m}" for m in pv_san])
             game_history = []
@@ -694,6 +703,7 @@ def best_move():
             moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize() if moving_piece else "Piece"
 
         tactical_facts = get_tactical_facts(temp_board)
+        piece_positions = get_piece_positions(temp_board)
 
         prompt = f"""
             DATA:
@@ -704,6 +714,7 @@ def best_move():
             - Tactical Facts (Ground Truth): {tactical_facts}
             - Engine's Expected Continuation: {expected_line_list}
             - Current Board FEN: {temp_board.fen()}
+            - CURRENT PIECE LOCATIONS (authoritative — use ONLY these to identify what is on each square, never infer from move history): {piece_positions}
 
             TASK:
             Explain exactly WHY {san_move} is the best move.
@@ -711,7 +722,7 @@ def best_move():
             STRICT RULES:
             1. **The "Copy-Paste" Rule:** When mentioning the opponent's best response, YOU MUST copy the move EXACTLY as it appears in the 'Engine's Expected Continuation'. If the data says "Black plays Ke6", YOU MUST NOT say "Black plays Be6" or "Black blocks with the bishop." 
             2. **Coordinate Lockdown:** Do not mention any square (like e7 or d5) unless it is explicitly mentioned in the 'Tactical Facts' or 'Expected Continuation'. 
-            3. **Piece Identity:** Double-check the piece type. If the data says 'K', it is a King. If 'B', it is a Bishop. Do not swap them.
+            3. **Piece Identity:** Before naming any piece on any square, look it up in CURRENT PIECE LOCATIONS. Never call a Bishop a Rook. Never infer piece identity from move history.
             4. **The "Best Reply" Rule:** Use phrases like "The best response is [EXACT MOVE FROM DATA], but you still maintain the initiative."
             5. Tone: Practical, blunt, and instructive. Max 3 sentences.
             """
@@ -776,11 +787,25 @@ def evaluate_user_suggested_move(board, user_message, history=None):
 
     for raw in raw_matches:
         move_str = normalize_move(raw)
+
+        # ── STEP 1: Legality check (isolated try-except) ──────────────────────
+        # If this fails, the move is genuinely illegal — skip to next match.
+        # We separate this from Stockfish so a Stockfish error never causes
+        # a legal move to be silently discarded and wrongly flagged as illegal.
+        move = None
         try:
             move = board.parse_san(move_str)
             if move not in board.legal_moves:
-                continue
+                move = None
+        except Exception:
+            move = None
 
+        if move is None:
+            continue  # Genuinely not legal — try next regex match
+
+        # ── STEP 2: Move IS legal. Run Stockfish analysis. ────────────────────
+        mover_is_black = (board.turn == chess.BLACK)
+        try:
             eval_before = get_evaluation(board.fen())
             board.push(move)
             eval_after = get_evaluation(board.fen())
@@ -807,7 +832,11 @@ def evaluate_user_suggested_move(board, user_message, history=None):
                     return 20.0 if "-" not in e else -20.0
                 return float(e)
 
+            # Stockfish eval is always from White's perspective.
+            # Negate delta for Black's moves so positive = good for the mover.
             delta = parse_e(eval_after) - parse_e(eval_before)
+            if mover_is_black:
+                delta = -delta
 
             if delta >= 0.5:      verdict = "STRONG"
             elif delta >= -0.3:   verdict = "REASONABLE"
@@ -815,7 +844,6 @@ def evaluate_user_suggested_move(board, user_message, history=None):
             elif delta >= -2.0:   verdict = "MISTAKE"
             else:                 verdict = "BLUNDER"
 
-            # FIX 2: translate verdict to plain English, no raw numbers passed to AI
             verdict_plain = {
                 "STRONG":     "a strong move that improves your position",
                 "REASONABLE": "a reasonable move — not the best but not losing",
@@ -835,8 +863,23 @@ def evaluate_user_suggested_move(board, user_message, history=None):
                 "continuation": " -> ".join(continuation),
                 "tactical_analysis": tactical_str
             }
+
         except Exception:
-            continue
+            # Stockfish failed but the move IS confirmed legal.
+            # Return a partial result so the move is NOT wrongly flagged as illegal.
+            try:
+                board.pop()
+            except Exception:
+                pass
+            return {
+                "move": move_str,
+                "verdict": "UNKNOWN",
+                "verdict_plain": "a legal move (engine analysis temporarily unavailable)",
+                "best_reply_after": "N/A",
+                "continuation": "",
+                "tactical_analysis": f"MOVE: {move_str}\nStockfish analysis unavailable — treat as a legal move."
+            }
+
     return None
 
 
@@ -858,15 +901,16 @@ def ask_coach():
     global board
     data = request.json or {}
 
-    user_question = data.get("question", "").strip()
-    fen           = data.get("fen", "")
-    pgn           = data.get("pgn", "")
-    history       = data.get("history", [])
-    current_eval  = data.get("eval", 0)
-    player_color  = data.get("player_color", "white")
-    game_mode     = data.get("game_mode", "analysis")
-    bot_elo       = data.get("bot_elo", None)
-    move_number   = data.get("move_number", 1)
+    user_question    = data.get("question", "").strip()
+    fen              = data.get("fen", "")
+    pgn              = data.get("pgn", "")
+    history          = data.get("history", [])
+    current_eval     = data.get("eval", 0)
+    player_color     = data.get("player_color", "white")
+    game_mode        = data.get("game_mode", "analysis")
+    bot_elo          = data.get("bot_elo", None)
+    move_number      = data.get("move_number", 1)
+    conversation_log = data.get("conversation_log", [])
 
     if not user_question:
         return jsonify({"status": "error", "message": "No question received."})
@@ -908,7 +952,6 @@ def ask_coach():
 
     continuation_str = " → ".join(engine_continuation) if engine_continuation else "N/A"
 
-    # FIX 2: no raw eval numbers in suggested_move_str
     suggested_move_analysis = evaluate_user_suggested_move(temp_board, user_question, history)
     suggested_move_str = "NONE — user did not mention a specific move."
     if suggested_move_analysis:
@@ -916,11 +959,54 @@ def ask_coach():
         suggested_move_str = (
             f"MOVE MENTIONED: {sm['move']}\n"
             f"Stockfish Verdict: {sm['verdict']} — {sm['verdict_plain']}\n"
-            f"Best Opponent Reply After This Move: {sm['best_reply_after']}\n"
-            f"Engine Continuation: {sm['continuation']}\n"
+            f"[COACH EYES ONLY — DO NOT STATE THIS TO THE STUDENT IN MODE 1]: "
+            f"The punishment move is {sm['best_reply_after']}. "
+            f"Engine line after student's move: {sm['continuation']}\n"
             f"--- FULL TACTICAL BREAKDOWN ---\n"
             f"{sm['tactical_analysis']}"
         )
+    else:
+        # ── Illegal move detection ─────────────────────────────────────────
+        # evaluate_user_suggested_move returned None — check if the user
+        # mentioned something that looks like a move but is genuinely illegal.
+        # We only fire the ILLEGAL MOVE ALERT when we can POSITIVELY confirm
+        # the move is not legal — never fire on ambiguity or Stockfish failure
+        # (those are caught above and return a partial result instead).
+        import re as _re
+        _move_pattern = _re.findall(
+            r'\b([KQRBNkqrbn]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBNqrbn])?|O-O-O|O-O|0-0-0|0-0)\b',
+            user_question
+        )
+        def _normalize(m):
+            return m[0].upper() + m[1:] if m and m[0] in 'kqrbn' else m
+        if _move_pattern:
+            mentioned = _normalize(_move_pattern[0])
+            # Default: NOT illegal (avoid false positives)
+            is_illegal = False
+            try:
+                parsed = temp_board.parse_san(mentioned)
+                # parse_san succeeded — is it actually in legal_moves?
+                if parsed not in temp_board.legal_moves:
+                    is_illegal = True
+            except Exception:
+                # parse_san raised — the move notation is genuinely unplayable
+                is_illegal = True
+
+            if is_illegal:
+                # Build a concrete reason from piece positions
+                piece_pos = get_piece_positions(temp_board)
+                suggested_move_str = (
+                    f"⚠️ ILLEGAL MOVE ALERT ⚠️: The move '{mentioned}' is NOT in the list of "
+                    f"legal moves for this position. Verified against the board — it cannot be played.\n"
+                    f"MANDATORY RESPONSE RULES:\n"
+                    f"1. Your FIRST sentence MUST be: 'That move is illegal.'\n"
+                    f"2. Then explain the specific reason using CURRENT PIECE LOCATIONS — "
+                    f"which piece cannot reach that square, or which square is empty, "
+                    f"or why the move geometry is wrong.\n"
+                    f"3. DO NOT say the move is reasonable, possible, or describe what it would accomplish.\n"
+                    f"4. DO NOT apologize or say you made an error previously — just state clearly it is illegal.\n"
+                    f"Current piece locations for your reference: {piece_pos}"
+                )
 
     if isinstance(current_eval, str) and "M" in str(current_eval):
         eval_str = f"Forced mate in {current_eval}"
@@ -966,45 +1052,108 @@ Black King Safety: {black_king_safety}
 === END CONTEXT ===
 """
 
-    # FIX 2: Updated laws — no eval numbers, better recapture rule
     coach_system_prompt = (
-        f"You are a sharp, direct chess coach. Student is {player_color.capitalize()}"
+        f"You are a chess coach. The student is {player_color.capitalize()}"
         f"{' vs a ' + opponent_str if game_mode == 'play' else ' in analysis mode'}. "
-        f"Game Phase: {game_phase}.\n\n"
-        "YOUR JOB: Answer the student using ONLY the data in the CONTEXT. Be specific. Be a real coach talking to a beginner.\n\n"
-        "IRON LAWS:\n"
-        "LAW 0 PIECE LOCATIONS: The ONLY source of truth for where pieces are is CURRENT PIECE LOCATIONS. NEVER infer piece location from PGN or move history.\n"
-        "LAW 1 GROUND TRUTH: Only mention pieces, squares, and moves in the CONTEXT. Never invent threats or phantom pieces.\n"
-        "LAW 2 SUGGESTED MOVE: If CONTEXT has a STOCKFISH VERDICT, your FIRST SENTENCE states plainly if the move is good or bad. Use the verdict_plain text. NEVER say eval numbers, centipawns, or delta. Say 'Qxc8 is a blunder' not 'Qxc8 drops eval by -1.36'.\n"
-        "LAW 3 RECAPTURE — MOST IMPORTANT: If TACTICAL BREAKDOWN says RECAPTURE WARNING, explain it like this: 'Your Queen captures the Rook on c8, but Black's Knight on e7 immediately takes back your Queen — so you give up a Queen to win only a Rook, losing material overall.' Be explicit: name WHAT you captured, name WHAT recaptures, name WHICH square, and state the net result clearly.\n"
-        "LAW 4 ASSASSIN RULE: For any bad move, name the EXACT opponent piece and move from Engine Continuation that punishes it.\n"
-        "LAW 5 TACTICAL MOTIFS: If TACTICAL BREAKDOWN reveals a fork, skewer, discovered attack, or back rank weakness, NAME the motif with exact squares.\n"
-        "LAW 6 NO EVAL NUMBERS EVER: Never say eval, centipawns, +1.3, -2.1, delta, or any engine score. Use only plain chess language: loses material, winning advantage, strong move, bad trade.\n"
-        "LAW 7 NO GENERIC ADVICE: 'Develop your pieces' and 'control the center' are BANNED unless tied to a specific piece or square from the context.\n"
-        "LAW 8 ACKNOWLEDGE THINKING: If student said 'I was thinking X because Y', address their reasoning directly.\n\n"
-        "CASE GUIDE:\n"
-        "BLUNDER: State it is a blunder in plain English. Name what is lost and which opponent piece wins it.\n"
-        "MISTAKE: State it is a mistake. Explain the specific concession with exact pieces and squares.\n"
-        "INACCURACY: State it is an inaccuracy. Explain the tempo loss or slight concession in plain terms.\n"
-        "REASONABLE or STRONG: Confirm it and explain WHY using specific pieces and squares from the data.\n"
-        "RECAPTURE: Spell out the full exchange — what you capture, what takes back, which square, net result in plain English.\n"
-        "FORK detected: Name it: Your Knight on X forks the King on Y and the Rook on Z.\n"
-        "DISCOVERED ATTACK: Moving the Bishop reveals your Rook attacking the opponent's Queen on X.\n"
-        "SKEWER detected: Your Rook skewers the King on e8, winning the Queen on e1 behind it.\n"
-        "BACK RANK WEAKNESS: Warn: Your back rank is vulnerable to checkmate from the Rook on X.\n"
-        "Student asks for a plan: Use engine best move and continuation. Explain in 2-3 moves with exact pieces and squares.\n"
-        "Student vents: One sentence acknowledgment then one concrete tip from the current position.\n\n"
-        "FORMAT: MAX 4 sentences. Coach voice, direct, not academic. No bullet points. No numbered lists. "
-        "Never start with 'Great question', 'Certainly', 'Of course', or any filler. First word must be about chess."
+        f"Game phase: {game_phase}.\n\n"
+
+        "=== YOUR JOB ===\n"
+        "Help the student understand chess through their own thinking. "
+        "When a move is bad, guide them to discover the punishment — do not hand them the answer immediately. "
+        "When they guess, respond based on whether they got it right or wrong. "
+        "When they ask a general question, answer it directly and specifically.\n\n"
+
+        "=== ABSOLUTE RULES — NEVER BREAK THESE ===\n"
+        "RULE 1: CURRENT PIECE LOCATIONS in the CONTEXT is the ONLY truth for what is on each square. "
+        "Never use move history or PGN to infer where pieces currently are.\n"
+        "RULE 2: Never mention eval scores, centipawns, or any engine number. "
+        "Use only chess language: loses material, strong move, bad trade, winning advantage.\n"
+        "RULE 3: Never say Great question, Certainly, Of course, Sure, or any filler. "
+        "Your first word must be about chess.\n"
+        "RULE 4: Never mention more than 4 sentences total.\n"
+        "RULE 5: No bullet points, no numbered lists, no headers.\n"
+        "RULE 6: Only mention pieces and squares that appear in CURRENT PIECE LOCATIONS or Engine Continuation. Never invent.\n\n"
+
+        "=== HOW TO READ THE CONTEXT ===\n"
+        "The CONTEXT contains a section called STOCKFISH VERDICT ON USER MENTIONED MOVE. "
+        "Inside it, there is a line marked [COACH EYES ONLY — DO NOT STATE THIS TO THE STUDENT IN MODE 1]. "
+        "That line tells you the punishment move the opponent would play. "
+        "You KNOW this move, but in MODE 1 you must NOT reveal it. Your job is to ask the student to find it.\n\n"
+
+        "=== SITUATION GUIDE ===\n\n"
+
+        "SITUATION A — Student suggests a move and Stockfish says it is INACCURACY, MISTAKE, or BLUNDER:\n"
+        "Sentence 1: Acknowledge the valid part of the student's thinking. "
+        "Be specific — mention the exact piece and what it does right (e.g. it does grab a pawn, it does attack a square).\n"
+        "Sentence 2: Explain the specific tactical problem using CURRENT PIECE LOCATIONS. "
+        "Say which piece of theirs is left undefended, or which square becomes weak, or what threat appears. "
+        "Be concrete — name the exact piece and square from CURRENT PIECE LOCATIONS.\n"
+        "Sentence 3: Ask the student one specific guiding question that points them toward finding the opponent's punishment move. "
+        "Do NOT name the punishment move. Do NOT say what it captures. Just ask them to find it by pointing at the relevant area of the board.\n\n"
+
+        "SITUATION B — Previous coach message asked the student a question, and student's answer is CORRECT "
+        "(matches or describes the punishment move in COACH EYES ONLY):\n"
+        "Sentence 1: Confirm they are correct. One word or short phrase only — do not be verbose about the confirmation.\n"
+        "Sentence 2: Explain concisely why that move is the punishment, using the exact pieces and squares from CURRENT PIECE LOCATIONS and Engine Continuation.\n"
+        "Sentence 3: Give one practical improvement tip that is directly relevant to this position — "
+        "something actionable the student can apply right now, like a specific piece to develop, "
+        "a king safety issue to address, or a positional concept demonstrated by this exact position. "
+        "Tie it to a specific piece or square from the board.\n\n"
+
+        "SITUATION C — Previous coach message asked the student a question, and student's answer is WRONG "
+        "(does not match the punishment move in COACH EYES ONLY):\n"
+        "Sentence 1: Tell them that is not the move, briefly and without harsh criticism.\n"
+        "Sentence 2: Reveal the actual punishment move from COACH EYES ONLY and explain exactly why it works, "
+        "using CURRENT PIECE LOCATIONS. Name the piece, the square it moves to, and what it wins.\n"
+        "Sentence 3: Give one practical improvement tip tied to a specific piece or square in the current position — "
+        "the same quality of tip as in SITUATION B.\n\n"
+
+        "SITUATION D — Student asks why a move does NOT work, or asks a how/why/what question about the position:\n"
+        "Answer directly and specifically using only CURRENT PIECE LOCATIONS, Tactical Facts, and Engine Continuation from CONTEXT. "
+        "Explain the concrete reason — name the piece, the square, the consequence. "
+        "No abstract principles unless tied directly to a piece currently on the board.\n\n"
+
+        "SITUATION E — Student suggests a move and Stockfish says it is STRONG or REASONABLE:\n"
+        "Sentence 1: Confirm the move is good.\n"
+        "Sentence 2: Explain specifically why it works — what piece becomes active, what threat it creates, "
+        "what weakness it exploits — using only CURRENT PIECE LOCATIONS.\n"
+        "Sentence 3: Give one forward-looking tip about the next idea in the position using the engine continuation.\n\n"
+
+        "SITUATION F — ⚠️ ILLEGAL MOVE ALERT ⚠️ is in CONTEXT:\n"
+        "This means the move has been verified by python-chess as NOT in the legal move list. "
+        "It is 100% illegal regardless of how it looks. "
+        "MANDATORY: Your FIRST sentence must be exactly: 'That move is illegal.' "
+        "Then use CURRENT PIECE LOCATIONS to explain the specific reason (wrong piece geometry, empty square, no such piece on that file, etc.). "
+        "DO NOT say the move sounds reasonable. DO NOT describe what it would accomplish. "
+        "DO NOT second-guess the illegality check — if CONTEXT says ILLEGAL MOVE ALERT, it IS illegal.\n\n"
+
+        "=== HOW TO PICK THE RIGHT SITUATION ===\n"
+        "Check the STOCKFISH VERDICT section of CONTEXT first.\n"
+        "If it says NONE, there is no specific move to analyze — use SITUATION D.\n"
+        "If it says ⚠️ ILLEGAL MOVE ALERT ⚠️ — ALWAYS use SITUATION F, no exceptions.\n"
+        "If it says INACCURACY, MISTAKE, or BLUNDER — check the conversation log.\n"
+        "If the last coach message (in conversation history) ended with a question — "
+        "compare the student's current message to the COACH EYES ONLY punishment move. "
+        "If they match or describe the same piece/move correctly, use SITUATION B. "
+        "If they do not match, use SITUATION C.\n"
+        "If there is no previous question from the coach, use SITUATION A.\n"
+        "If the student's move is STRONG or REASONABLE, use SITUATION E.\n"
     )
 
     try:
+        messages = [{"role": "system", "content": coach_system_prompt}]
+
+        for entry in conversation_log:
+            messages.append({"role": entry["role"], "content": entry["content"]})
+
+        messages.append({
+            "role": "user",
+            "content": f"CONTEXT:\n{context_block}\n\nSTUDENT'S MESSAGE:\n{user_question}"
+        })
+
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": coach_system_prompt},
-                {"role": "user",   "content": f"CONTEXT:\n{context_block}\n\nSTUDENT'S MESSAGE:\n{user_question}"}
-            ],
+            model="gpt-4o",
+            messages=messages,
             temperature=0.4,
             max_tokens=300
         )
@@ -1013,6 +1162,27 @@ Black King Safety: {black_king_safety}
     except Exception as e:
         print(f"!!! ASK COACH ERROR: {e}")
         return jsonify({"status": "error", "message": "Coach is unavailable right now."})
+
+
+@app.route('/takeback', methods=['POST'])
+def takeback():
+    global board
+    data = request.json or {}
+    moves_to_pop = data.get('moves_to_pop', 2)
+
+    popped = 0
+    for _ in range(moves_to_pop):
+        if len(board.move_stack) > 0:
+            board.pop()
+            popped += 1
+
+    evaluation = get_evaluation(board.fen()) if popped > 0 else 0
+    return jsonify({
+        "status": "success",
+        "fen": board.fen(),
+        "popped": popped,
+        "evaluation": evaluation
+    })
 
 
 if __name__ == '__main__':

@@ -44,11 +44,16 @@
             <div class="board-actions">
                 <button class="action-btn primary" id="explain-btn">Explain Move</button>
                 <button class="action-btn secondary" id="suggest-btn">Best Move?</button>
-                <button class="action-btn danger" onclick="resetGame()">Reset Game</button>
+                <button class="action-btn danger" id="reset-game-btn" onclick="resetGame()">Reset Game</button>
             </div>
             <div class="board-actions" id="pgn-actions" style="margin-top: 8px;">
                 <button class="action-btn pgn-btn" id="copy-pgn-btn" onclick="copyPGN()">📋 Copy PGN</button>
                 <button class="action-btn pgn-btn" id="share-btn" onclick="shareGame()">🔗 Share Game</button>
+            </div>
+
+            <!-- Takeback row — Play AI mode only, shown when game is in progress -->
+            <div class="board-actions" id="takeback-row" style="margin-top: 8px; display: none;">
+                <button class="action-btn takeback-btn" id="takeback-btn" onclick="takeback()">↩ Takeback</button>
             </div>
 
             <!-- Toast Notification -->
@@ -79,14 +84,14 @@
             <div id="elo-panel" style="display: none;">
                 <p style="color: #64748b; font-size: 0.8rem; margin-bottom: 8px; font-weight: bold;">SELECT DIFFICULTY:</p>
                 <div class="elo-grid">
-                    <button class="elo-btn active" onclick="setElo(200, this)">200</button>
-                    <button class="elo-btn" onclick="setElo(400, this)">400</button>
-                    <button class="elo-btn" onclick="setElo(800, this)">800</button>
-                    <button class="elo-btn" onclick="setElo(1200, this)">1200</button>
-                    <button class="elo-btn" onclick="setElo(1600, this)">1600</button>
-                    <button class="elo-btn" onclick="setElo(2000, this)">2000</button>
-                    <button class="elo-btn" onclick="setElo(2400, this)">2400</button>
-                    <button class="elo-btn" onclick="setElo(2800, this)">2800+</button>
+                    <button class="elo-btn active" onclick="setElo(200, this)"><span class="elo-label">Beginner</span><span class="elo-num">200</span></button>
+                    <button class="elo-btn" onclick="setElo(400, this)"><span class="elo-label">Casual</span><span class="elo-num">400</span></button>
+                    <button class="elo-btn" onclick="setElo(800, this)"><span class="elo-label">Amateur</span><span class="elo-num">800</span></button>
+                    <button class="elo-btn" onclick="setElo(1200, this)"><span class="elo-label">Club</span><span class="elo-num">1200</span></button>
+                    <button class="elo-btn" onclick="setElo(1600, this)"><span class="elo-label">Advanced</span><span class="elo-num">1600</span></button>
+                    <button class="elo-btn" onclick="setElo(2000, this)"><span class="elo-label">Expert</span><span class="elo-num">2000</span></button>
+                    <button class="elo-btn" onclick="setElo(2400, this)"><span class="elo-label">Master</span><span class="elo-num">2400</span></button>
+                    <button class="elo-btn" onclick="setElo(2800, this)"><span class="elo-label">GM+</span><span class="elo-num">2800+</span></button>
                 </div>
                 <p style="color: #64748b; font-size: 0.8rem; margin: 10px 0 8px; font-weight: bold;">PLAY AS:</p>
                 <div class="color-grid">
@@ -155,6 +160,7 @@
         let gameInProgress = false;      // true once Start Game is clicked
         let resignConfirmPending = false; // true after first resign click
         let boardLocked = true;           // true until Start Game is pressed in Play AI mode
+        let coachChatLog = [];            // last N exchanges for Socratic follow-up context
 
         let moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1']; // The starting FEN
         let currentMoveIndex = 0;
@@ -178,15 +184,21 @@
             const evalContainer = document.getElementById('eval-bar-container');
             const eloPanel = document.getElementById('elo-panel');
             const pgnUploadBtn = document.getElementById('pgn-upload-btn');
+            const takebackRow = document.getElementById('takeback-row');
+            const resetBtn = document.getElementById('reset-game-btn');
 
             if (mode === 'play') {
                 evalContainer.style.display = 'none'; 
                 eloPanel.style.display = 'block';
                 pgnUploadBtn.style.display = 'none';
+                takebackRow.style.display = gameInProgress ? 'flex' : 'none';
+                resetBtn.style.display = 'none';
             } else {
                 evalContainer.style.display = 'block'; 
                 eloPanel.style.display = 'none';
                 pgnUploadBtn.style.display = 'block';
+                takebackRow.style.display = 'none';
+                resetBtn.style.display = 'inline-block';
             }
         }
 
@@ -279,6 +291,7 @@
                 gameInProgress = false;
                 boardLocked = true;
                 setStartResignBtn('start');
+                document.getElementById('takeback-row').style.display = 'none';
             }
         }
 
@@ -483,6 +496,7 @@
                     setStartResignBtn('start');
                     gameInProgress = false;
                     boardLocked = true;
+                    document.getElementById('takeback-row').style.display = 'none';
                 }
             }
         }
@@ -531,6 +545,7 @@
                     gameInProgress = true;
                     boardLocked = false;
                     setStartResignBtn('resign');
+                    document.getElementById('takeback-row').style.display = 'flex';
                 }
 
                 // If playing as Black, engine goes first
@@ -544,7 +559,9 @@
             gameInProgress = false;
             boardLocked = true;
             resignConfirmPending = false;
+            coachChatLog = [];
             setStartResignBtn('start');
+            document.getElementById('takeback-row').style.display = 'none';
             startNewGame();
         }
 
@@ -653,40 +670,43 @@
             msgDiv.style.marginBottom = '10px';
             msgDiv.style.fontSize = '0.9rem';
             msgDiv.style.lineHeight = '1.4';
-            msgDiv.style.whiteSpace = 'pre-wrap'; // Keeps formatting neat
+            msgDiv.style.whiteSpace = 'pre-wrap';
 
             const prefix = sender === 'bot' ? '<strong>🤖 Coach:</strong> ' : '<strong>👤 You:</strong> ';
+
+            // Track conversation for Socratic follow-up (keep last 6 messages)
+            const role = sender === 'bot' ? 'assistant' : 'user';
+            const cleanForLog = text.replace(/\*\*/g, '');
+            coachChatLog.push({ role, content: cleanForLog });
+            if (coachChatLog.length > 6) coachChatLog.shift();
 
             if (sender === 'bot') {
                 msgDiv.style.background = '#f1f5f9'; 
                 msgDiv.style.color = '#334155';
 
-                // --- Retro Typewriter Effect Logic ---
                 if (animate) {
                     msgDiv.innerHTML = prefix;
                     chatHistory.appendChild(msgDiv);
                     
                     let i = 0;
-                    // Remove markdown bolding (**) for a cleaner chat interface
                     const cleanText = text.replace(/\*\*/g, ''); 
                     
                     function typeWriter() {
                         if (i < cleanText.length) {
                             msgDiv.innerHTML += cleanText.charAt(i);
                             i++;
-                            chatHistory.scrollTop = chatHistory.scrollHeight; // Auto-scroll
-                            setTimeout(typeWriter, 20); // 20ms delay per character
+                            chatHistory.scrollTop = chatHistory.scrollHeight;
+                            setTimeout(typeWriter, 20);
                         }
                     }
                     typeWriter();
-                    return; // Exit here so it doesn't print instantly below
+                    return;
                 }
             } else {
                 msgDiv.style.background = '#e0f2fe'; 
                 msgDiv.style.color = '#0369a1';
             }
             
-            // Standard instant load (used for User messages)
             msgDiv.innerHTML = prefix + text;
             chatHistory.appendChild(msgDiv);
             chatHistory.scrollTop = chatHistory.scrollHeight; 
@@ -1056,15 +1076,16 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    question:     question,
-                    fen:          currentFen,
-                    pgn:          pgnAtView,
-                    history:      historyAtView,
-                    eval:         lastKnownEval,
-                    player_color: playerColor,
-                    game_mode:    currentGameMode,
-                    bot_elo:      currentGameMode === 'play' ? currentElo : null,
-                    move_number:  moveNumber
+                    question:          question,
+                    fen:               currentFen,
+                    pgn:               pgnAtView,
+                    history:           historyAtView,
+                    eval:              lastKnownEval,
+                    player_color:      playerColor,
+                    game_mode:         currentGameMode,
+                    bot_elo:           currentGameMode === 'play' ? currentElo : null,
+                    move_number:       moveNumber,
+                    conversation_log:  coachChatLog.slice(0, -1) // all but the message we just added
                 })
             })
             .then(res => res.json())
@@ -1082,6 +1103,56 @@
                 const loader = document.getElementById('coach-loading');
                 if (loader) loader.remove();
                 appendChatMessage('bot', 'Connection dropped. Try again.', true);
+            });
+        }
+
+        // ─── TAKEBACK ─────────────────────────────────────────────────────
+        function takeback() {
+            if (!gameInProgress) return;
+
+            const totalMoves = game.history().length;
+            if (totalMoves === 0) return;
+
+            // If playing as Black and engine went first (odd total moves),
+            // only pop 1. Otherwise pop 2 (player move + engine move).
+            const movesToPop = totalMoves >= 2 ? 2 : 1;
+
+            fetch('/takeback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ moves_to_pop: movesToPop })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Undo moves in chess.js
+                    for (let i = 0; i < movesToPop; i++) {
+                        game.undo();
+                    }
+
+                    // Rebuild FEN history to stay in sync
+                    for (let i = 0; i < movesToPop; i++) {
+                        if (moveHistoryFens.length > 1) moveHistoryFens.pop();
+                    }
+                    currentMoveIndex = moveHistoryFens.length - 1;
+
+                    board.position(data.fen);
+                    updateMoveList();
+                    clearArrows();
+                    $('.square-55d63').removeClass('highlight-check');
+
+                    // If resign confirm was pending, clear it back to plain Resign
+                    if (resignConfirmPending) {
+                        resignConfirmPending = false;
+                        const btn = document.getElementById('start-resign-btn');
+                        if (btn) { btn.textContent = '🏳 Resign'; btn.style.background = ''; }
+                    }
+
+                    appendChatMessage('bot', 'Takeback granted — make a different move!', true);
+                }
+            })
+            .catch(() => {
+                appendChatMessage('bot', 'Takeback failed. Try again.', true);
             });
         }
 

@@ -101,19 +101,43 @@ body {
 }
 
 .elo-btn {
-    padding: 8px 2px;
-    font-size: 0.7rem; /* Compact for 7 buttons */
+    padding: 6px 2px;
+    font-size: 0.7rem;
     background: #e2e8f0;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-weight: bold;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    line-height: 1.2;
 }
 
-.elo-btn.active {
-    background: #27ae60;
-    color: white;
+.elo-label {
+    font-size: 0.68rem;
+    font-weight: bold;
+    color: #1e293b;
 }
+
+.elo-num {
+    font-size: 0.58rem;
+    color: #64748b;
+    font-weight: normal;
+}
+
+.elo-btn.active { background: #27ae60; }
+.elo-btn.active .elo-label,
+.elo-btn.active .elo-num { color: white; }
+
+/* Takeback Button */
+.takeback-btn {
+    background: #7f8c8d;
+    flex: 1;
+    font-size: 0.85rem;
+}
+.takeback-btn:hover { background: #636e72; }
 
 /* Modern Chatbox */
 .chat-wrapper {
