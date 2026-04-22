@@ -1,16 +1,34 @@
+import os
+import sys
 from flask import Flask, render_template, request, jsonify
 import chess
 import chess.engine
-import random
-import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv()
+# --- THE FIX ---
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
-app = Flask(__name__)
+# Point load_dotenv to the internal bundled file
+load_dotenv(dotenv_path=resource_path(".env"))
 
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Tell Flask where to find your bundled HTML and CSS
+app = Flask(__name__, 
+            template_folder=resource_path('templates'), 
+            static_folder=resource_path('static'))
+
+# --- REST OF YOUR CODE ---
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# When you eventually call Stockfish, remember to wrap it too:
+# engine = chess.engine.SimpleEngine.popen_uci(resource_path("engines/stockfish.exe"))
 
 system_instruction = (
     """
