@@ -3,7 +3,7 @@ name: Build Windows EXE
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:   # lets you trigger it manually from the Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -24,25 +24,13 @@ jobs:
           pip install pyinstaller
 
       - name: Create .env for bundle
-        run: |
-          echo OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} > .env
+        run: echo OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} > .env
 
       - name: Build EXE with PyInstaller
-        run: |
-          pyinstaller --noconfirm --onedir --windowed ^
-            --name "ChessmateAI" ^
-            --add-data "templates;templates" ^
-            --add-data "static;static" ^
-            --add-data "engines;engines" ^
-            --add-data ".env;." ^
-            --hidden-import flask ^
-            --hidden-import chess ^
-            --hidden-import chess.engine ^
-            --hidden-import openai ^
-            --hidden-import dotenv ^
-            app.py
+        run: pyinstaller --noconfirm --onedir --windowed --name "ChessmateAI" --add-data "templates;templates" --add-data "static;static" --add-data "engines;engines" --add-data ".env;." --hidden-import flask --hidden-import chess --hidden-import chess.engine --hidden-import openai --hidden-import dotenv app.py
 
       - name: Create launcher batch file
+        shell: cmd
         run: |
           echo @echo off > dist\ChessmateAI\START.bat
           echo echo Starting Chessmate AI... >> dist\ChessmateAI\START.bat
@@ -50,8 +38,7 @@ jobs:
           echo ChessmateAI.exe >> dist\ChessmateAI\START.bat
 
       - name: Zip the output
-        run: |
-          Compress-Archive -Path dist\ChessmateAI\* -DestinationPath ChessmateAI-Windows.zip
+        run: Compress-Archive -Path dist\ChessmateAI\* -DestinationPath ChessmateAI-Windows.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
