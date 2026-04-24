@@ -5,6 +5,7 @@ import chess
 import chess.engine
 from dotenv import load_dotenv
 from openai import OpenAI
+import random
 
 # --- THE FIX ---
 def resource_path(relative_path):
