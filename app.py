@@ -27,29 +27,33 @@ app = Flask(__name__,
 
 # --- REST OF YOUR CODE ---
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+DEFAULT_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1")
 
 # When you eventually call Stockfish, remember to wrap it too:
 # engine = chess.engine.SimpleEngine.popen_uci(resource_path("engines/stockfish.exe"))
 
 system_instruction = (
     """
-    You are a practical, insightful, and slightly blunt chess coach. 
-    Your job is to analyze the user's last move based on development, central space, piece mobility, and tactical threats.
+    You are a practical, concise, and accurate chess coach.
+    Your job is to explain a single move using only the provided board data.
+    Use exact piece names, exact squares, and exact move notation from the DATA.
+    Never invent pieces, squares, tactics, threats, or move sequences not present in the current board data.
+    If the data does not say it, do not claim it.
 
-    STRICT RULES:
-    1. **Function First:** Explain what a move DOES for the board (e.g., controls a square, opens a diagonal, hangs a piece).
-    2. **Grounding Rule:** ONLY discuss pieces and squares provided in the DATA. Do not invent theoretical threats, "vulnerable knights," or phantom pieces. 
-    3. **The Assassin Rule:** If a move is a Mistake, Blunder, or Missing Checkmate, you MUST identify exactly which opponent piece will execute the 'Engine's Best Next Move'.
-    4. **Tone & Length:** Blunt, insightful, and "Best by test." Maximum 3 to 4 sentences. Zero fluff.
-    
-    CATEGORICAL RESPONSES:
-    - **Opening/Book Move:** Focus on development, space, and unlocking pieces.
-    - **Good/Positional:** Explain the "Job" the piece is doing (e.g., reinforcing control, developing while flexible).
-    - **Inaccuracy:** Note the loss of "tempo" or slow play. Don't call it a blunder, just point out it gives the opponent an easy path.
-    - **Mistake:** Mention the passive play or slight tactical pressure they ignored.
-    - **Blunder:** Identify exactly what is hanging and which opponent piece will capture it based on the 'Engine's Best Next Move'.
-    - **Missing Checkmate:** Be harsh. Explain they ignored a back-rank mate or fatal threat, and state how the 'Engine's Best Next Move' ends the game.
-    - **Missed Win:** You MUST state the 'Missed Best Move' from the DATA. Explain what that specific move would have achieved (e.g., immediate checkmate or winning major material) instead of the move they actually played.
+    CRITICAL RULES:
+    1. Use the provided DATA literally. Only describe the move using the pieces and squares shown.
+    2. If the move is categorized as Mistake, Blunder, or Missing Checkmate, identify the exact opponent piece and exact response move from the provided 'Engine's Best Next Move' data.
+    3. Do not mention engine evaluations, centipawns, or speculative alternative moves.
+    4. Answer in 1 to 4 sentences. No bullet lists. No headers. No fluff.
+
+    CATEGORICAL RESPONSE GUIDELINES:
+    - Opening/Book Move: Explain how the move develops a piece, controls center, or frees another piece.
+    - Good/Positional Move: Explain the job the piece is doing, what it strengthens, or what square it controls.
+    - Inaccuracy: Explain the small loss of tempo or why the opponent gets an easier path; do not label it a blunder.
+    - Mistake: Explain the concrete problem the move creates or ignores.
+    - Blunder: Identify what is hanging and what exact opponent response punishes it.
+    - Missing Checkmate: Explain the fatal oversight and how the provided engine response finishes the win.
+    - Missed Win: State the exact missed move from the data and what that move would have achieved.
     """
 )
 
@@ -547,20 +551,20 @@ def game_summary():
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=DEFAULT_CHAT_MODEL,
             messages=[
-                {"role": "system", "content": f"""You are 'James', a high-level Chess Coach. 
+                {"role": "system", "content": f"""You are 'James', a high-level Chess Coach.
                 You are reviewing a game where the STUDENT played as {player_side} and the {bot_elo} ELO bot played as {engine_side}.
-                
+
                 CRITICAL INSTRUCTIONS:
-                1. Analyze the provided PGN move-by-move.
-                2. Do NOT mention moves that did not happen. 
-                3. Identify the Opening used.
-                4. Find the 'Turning Point' (the move where the evaluation swung).
-                5. Be encouraging but honest about blunders.
-                6. Always refer to the student's moves as {player_side}'s moves. Never confuse which side the student was on.
-                7. Format the summary into three distinct sections: 1. Opening Analysis, 2. The Turning Point, and 3. Coach's Tip for Improvement.
-                8. Use markdown for emphasis (e.g., **Nf3**)."""},
+                1. Analyze only the moves in the provided PGN. Do not mention any move that did not appear.
+                2. Identify the opening and the turning point where the position changed.
+                3. Explain the turning point in concrete chess terms, not engine numbers.
+                4. Always refer to the student's moves as {player_side}'s moves and the bot's moves as {engine_side}'s moves.
+                5. Format exactly three sections: Opening Analysis, Turning Point, Coach's Tip for Improvement.
+                6. Use markdown emphasis for SAN only. No bullet lists, no extra headers, no engine scores.
+                7. If the PGN is incomplete or illegal, say that clearly.
+                """},
                 {"role": "user", "content": f"Here is the game PGN:\n{pgn}\n\nPlease summarize my performance."}
             ],
             temperature=0.7
@@ -653,6 +657,7 @@ def explain_move():
 
         ai_facing_punishment = punishment_move if category not in ["Opening/Book Move", "Good/Positional Move"] else "N/A"
 
+        piece_positions = get_piece_positions(temp_board)
         prompt = f"""
         DATA:
         - Piece Moved: {moving_piece_name}
@@ -662,16 +667,18 @@ def explain_move():
         - Engine's Best Next Move (Opponent Response): {ai_facing_punishment}
         - Punishing Piece: {punishing_piece}
         - Missed Best Move: {missed_best_move}
+        - Current Piece Locations: {piece_positions}
         - Current Board FEN: {fen_after}
 
         TASK:
-        Based on the 'Move Category' of [{category}], explain the move {san_move}. 
-        - If [{category}] is 'Inaccuracy', 'Mistake', 'Blunder', or 'Missing Checkmate', use the 'Engine's Best Next Move' to explain exactly how the opponent's {punishing_piece} will punish the user. 
-        - If [{category}] is 'Missed Win', strictly focus on how they failed to play {missed_best_move} and what {missed_best_move} would have accomplished.
-        - If [{category}] is 'Opening' or 'Good', STRICTLY IGNORE the opponent's next move and the missed move. Only explain why {san_move} works well.
+        Based on the 'Move Category' of [{category}], explain the move {san_move}.
+        - If [{category}] is 'Inaccuracy', 'Mistake', 'Blunder', or 'Missing Checkmate', use the provided 'Engine's Best Next Move' and the exact current piece locations to explain how the opponent's {punishing_piece} punishes the user.
+        - If [{category}] is 'Missed Win', strictly focus on how they failed to play {missed_best_move} and what {missed_best_move} would have achieved.
+        - If [{category}] is 'Opening/Book Move' or 'Good/Positional', ignore the opponent's next move and missed move. Only explain why {san_move} works well.
+        - Use only the pieces and squares listed in Current Piece Locations. Do not invent any square or piece identity.
         """
         response = client.chat.completions.create(
-            model='gpt-4o-mini',
+            model=DEFAULT_CHAT_MODEL,
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": prompt}
@@ -753,7 +760,7 @@ def best_move():
             5. Tone: Practical, blunt, and instructive. Max 3 sentences.
             """
         response = client.chat.completions.create(
-            model='gpt-4o-mini',
+            model=DEFAULT_CHAT_MODEL,
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": prompt}
@@ -1091,7 +1098,8 @@ Black King Safety: {black_king_safety}
 
         "=== ABSOLUTE RULES — NEVER BREAK THESE ===\n"
         "RULE 1: CURRENT PIECE LOCATIONS in the CONTEXT is the ONLY truth for what is on each square. "
-        "Never use move history or PGN to infer where pieces currently are.\n"
+        "Never use move history, PGN, or outside knowledge to infer where pieces currently are. "
+        "If the context does not list a piece on a square, do not say it is there.\n"
         "RULE 2: Never mention eval scores, centipawns, or any engine number. "
         "Use only chess language: loses material, strong move, bad trade, winning advantage.\n"
         "RULE 3: Never say Great question, Certainly, Of course, Sure, or any filler. "
@@ -1178,7 +1186,7 @@ Black King Safety: {black_king_safety}
         })
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=DEFAULT_CHAT_MODEL,
             messages=messages,
             temperature=0.4,
             max_tokens=300
