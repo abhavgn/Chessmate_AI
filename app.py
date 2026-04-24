@@ -59,7 +59,14 @@ board = chess.Board()
 def index():
     return render_template('index.html')
 
-engine_path = "./engines/stockfish"
+def get_engine_path():
+    engine_name = "stockfish.exe" if os.name == "nt" else "stockfish"
+    candidate = resource_path(os.path.join("engines", engine_name))
+    if not os.path.exists(candidate):
+        candidate = resource_path(os.path.join("engines", "stockfish"))
+    return candidate
+
+engine_path = get_engine_path()
 
 def get_evaluation(fen):
     with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
