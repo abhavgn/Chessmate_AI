@@ -383,7 +383,7 @@
             fetch("/move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ move: moveText })
+                body: JSON.stringify({ move: moveText, fen: game.fen() })
             })
             .then(res => res.json())
             .then(data => {
@@ -466,7 +466,7 @@
             fetch("/engine_move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ level: levelToSend })
+                body: JSON.stringify({ level: levelToSend, fen: game.fen() })
             })
             .then(res => res.json())
             .then(data => {
@@ -930,8 +930,9 @@
                     return;
                 }
 
+                game.reset();
                 game.load_pgn(trimmed);
-                console.log('[loadPGNString] game.load_pgn() called, game history length:', game.history().length);
+                console.log('[loadPGNString] game.reset() and game.load_pgn() called, game history length:', game.history().length);
 
                 // Rebuild FEN history so arrow keys work
                 moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];

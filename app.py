@@ -90,10 +90,18 @@ def make_move():
     global board
     data = request.json
     move_text = data.get("move")
+    fen = data.get("fen")
+
     try:
+        if fen:
+            temp_board = chess.Board(fen)
+        else:
+            temp_board = chess.Board(board.fen())
+
         move = chess.Move.from_uci(move_text)
-        if move in board.legal_moves:
-            board.push(move)
+        if move in temp_board.legal_moves:
+            temp_board.push(move)
+            board = temp_board
             current_eval = get_evaluation(board.fen())
             return jsonify({
                 "status": "success",
@@ -117,8 +125,14 @@ def reset_board():
 def engine_move():
     global board
     data = request.json
-    if board.is_game_over():
-        return jsonify({"game_over": True, "fen": board.fen()})
+    fen = data.get("fen")
+    if fen:
+        temp_board = chess.Board(fen)
+    else:
+        temp_board = chess.Board(board.fen())
+
+    if temp_board.is_game_over():
+        return jsonify({"game_over": True, "fen": temp_board.fen()})
     try:
         raw_level = data.get("level")
         elo_rating = int(raw_level) if raw_level is not None else 200
@@ -136,25 +150,28 @@ def engine_move():
 
     try:
         if elo_rating <= 200 and random.random() < 0.40:
-            random_move = random.choice(list(board.legal_moves))
-            board.push(random_move)
+            random_move = random.choice(list(temp_board.legal_moves))
+            temp_board.push(random_move)
             with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
-                info = engine.analyse(board, chess.engine.Limit(time=0.01))
+                info = engine.analyse(temp_board, chess.engine.Limit(time=0.01))
                 score = info["score"].white()
                 if score.is_mate(): eval_val = f"M{score.mate()}"
                 else: eval_val = score.score() / 100.0 if score.score() is not None else 0.0
+            board = temp_board
             return jsonify({"move": random_move.uci(), "fen": board.fen(), "evaluation": eval_val})
 
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
             engine.configure({"Skill Level": skill, "Threads": 1, "Hash": 16})
             limit = chess.engine.Limit(time=0.01, depth=1) if elo_rating <= 200 else chess.engine.Limit(time=0.01, nodes=(1000 if skill == 0 else None))
-            result = engine.play(board, limit)
+            result = engine.play(temp_board, limit)
             if result.move is None:
-                return jsonify({"game_over": True, "fen": board.fen()})
-            board.push(result.move)
-            info = engine.analyse(board, chess.engine.Limit(time=0.01))
-            score = info["score"].white()
-            eval_val = f"M{score.mate()}" if score.is_mate() else (score.score() / 100.0 if score.score() is not None else 0.0)
+                return jsonify({"game_over": True, "fen": temp_board.fen()})
+            temp_board.push(result.move)
+            with chess.engine.SimpleEngine.popen_uci(engine_path) as engine2:
+                info = engine2.analyse(temp_board, chess.engine.Limit(time=0.01))
+                score = info["score"].white()
+                eval_val = f"M{score.mate()}" if score.is_mate() else (score.score() / 100.0 if score.score() is not None else 0.0)
+            board = temp_board
             return jsonify({"move": result.move.uci(), "fen": board.fen(), "evaluation": eval_val})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
