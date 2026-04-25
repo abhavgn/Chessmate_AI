@@ -328,18 +328,43 @@
         }
 
         function onDrop(source, target) {
-            // Block all moves in Play AI mode until Start Game is pressed
-            if (currentGameMode === 'play' && boardLocked) return 'snapback';
+            console.log(`[onDrop] source=${source}, target=${target}, mode=${currentGameMode}, pgnLoadComplete=${pgnLoadComplete}`);
+            
+            if (!pgnLoadComplete) {
+                console.log('[onDrop] BLOCKED: PGN still loading');
+                return 'snapback';
+            }
 
-            if (currentMoveIndex !== moveHistoryFens.length - 1) return 'snapback';
+            // Block all moves in Play AI mode until Start Game is pressed
+            if (currentGameMode === 'play' && boardLocked) {
+                console.log('[onDrop] BLOCKED: Play mode and board locked');
+                return 'snapback';
+            }
+
+            if (currentMoveIndex !== moveHistoryFens.length - 1) {
+                console.log(`[onDrop] BLOCKED: Not at latest move (${currentMoveIndex} vs ${moveHistoryFens.length - 1})`);
+                return 'snapback';
+            }
+
+            // In analysis mode, allow moves even if game is technically over
+            if (currentGameMode === 'play' && game.game_over()) {
+                console.log('[onDrop] BLOCKED: Game is over (Play mode)');
+                return 'snapback';
+            }
 
             clearArrows();
 
-            if (source === target) return;
+            if (source === target) {
+                console.log('[onDrop] BLOCKED: Same square');
+                return;
+            }
 
             // Block dragging when it's the engine's turn
             const engineColor = (playerColor === 'white') ? 'b' : 'w';
-            if (currentGameMode === 'play' && game.turn() === engineColor) return 'snapback';
+            if (currentGameMode === 'play' && game.turn() === engineColor) {
+                console.log('[onDrop] BLOCKED: Engine turn');
+                return 'snapback';
+            }
 
             const piece = game.get(source);
             if (piece && piece.type === 'p' && (target[1] === '8' || target[1] === '1')) {
@@ -353,6 +378,7 @@
 
         function sendMoveToServer(moveText, source, target) {
             clearArrows();
+            console.log(`[sendMoveToServer] Sending move: ${moveText}`);
 
             fetch("/move", {
                 method: "POST",
@@ -361,6 +387,7 @@
             })
             .then(res => res.json())
             .then(data => {
+                console.log('[sendMoveToServer] Response:', data);
                 if (data.status === "success") {
                     board.position(data.fen); 
                     
@@ -397,9 +424,13 @@
                         }
                     }
                 } else {
+                    console.error('[sendMoveToServer] Move rejected:', data.message);
                     board.position(game.fen()); 
                     return 'snapback'; 
                 }
+            })
+            .catch(err => {
+                console.error('[sendMoveToServer] Fetch error:', err);
             });
         }
 
@@ -829,7 +860,7 @@
             const historyAtIndex = fullHistory.slice(0, currentMoveIndex);
             const currentFen = moveHistoryFens[currentMoveIndex];
 
-            fetch('/sync_position', {
+            return fetch('/sync_position', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ fen: currentFen, history: historyAtIndex })
@@ -839,8 +870,12 @@
                 if (data.status === 'success' && currentGameMode === 'analysis') {
                     updateEvalBar(data.evaluation);
                 }
+                return data;
             })
-            .catch(err => console.error('Sync error:', err));
+            .catch(err => {
+                console.error('Sync error:', err);
+                throw err;
+            });
         }
 
         // ─── PGN MODAL OPEN / CLOSE ──────────────────────────────────────
@@ -861,6 +896,8 @@
 
         // ─── PGN UPLOAD / LOAD ───────────────────────────────────────────
 
+        let pgnLoadComplete = true; // flag to prevent moves during async PGN load
+
         function loadPGNString(pgn) {
             const trimmed = pgn.trim();
             if (!trimmed) {
@@ -876,9 +913,13 @@
                 return;
             }
 
+            console.log('[loadPGNString] PGN loaded successfully');
+            pgnLoadComplete = false; // Block moves during load
+
             // Reset everything cleanly
             fetch('/reset', { method: 'POST' }).then(() => {
                 game.load_pgn(trimmed);
+                console.log('[loadPGNString] game.load_pgn() called, game history length:', game.history().length);
 
                 // Rebuild FEN history so arrow keys work
                 moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
@@ -887,8 +928,11 @@
                     replayBoard.move(move);
                     moveHistoryFens.push(replayBoard.fen());
                 }
+                console.log('[loadPGNString] moveHistoryFens rebuilt, length:', moveHistoryFens.length);
 
                 currentMoveIndex = moveHistoryFens.length - 1;
+                console.log('[loadPGNString] currentMoveIndex set to:', currentMoveIndex);
+
                 board.position(game.fen());
                 updateMoveList();
                 updateEvalBar(0);
@@ -897,7 +941,10 @@
                 clearArrows();
 
                 // Tell the backend about the loaded PGN position so future moves stay legal.
-                syncPositionWithBackend();
+                syncPositionWithBackend().then(() => {
+                    pgnLoadComplete = true; // Allow moves now
+                    console.log('[loadPGNString] Backend synced, moves enabled');
+                });
 
                 // Clear the input fields
                 document.getElementById('pgn-text-input').value = '';
@@ -905,6 +952,7 @@
                 document.getElementById('pgn-drop-label').textContent = '🗂 Drag & drop a .pgn file here';
                 closePGNModalDirect();
 
+                console.log('[loadPGNString] Ready for moves. currentMoveIndex:', currentMoveIndex, 'moveHistoryFens.length:', moveHistoryFens.length);
                 showToast('✅ Game loaded! Use ← → to review.');
             });
         }
