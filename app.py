@@ -1,8 +1,10 @@
+import io
 import os
 import sys
 from flask import Flask, render_template, request, jsonify
 import chess
 import chess.engine
+import chess.pgn
 from dotenv import load_dotenv
 from openai import OpenAI
 import random
@@ -801,6 +803,30 @@ def sync_position():
             return jsonify({"status": "success", "evaluation": evaluation})
         except Exception as e2:
             return jsonify({"status": "error", "message": str(e2)})
+
+
+@app.route('/load_pgn', methods=['POST'])
+def load_pgn():
+    global board
+    data = request.json
+    pgn_text = data.get('pgn', '').strip()
+    if not pgn_text:
+        return jsonify({"status": "error", "message": "No PGN provided."})
+
+    try:
+        pgn_io = io.StringIO(pgn_text)
+        game_pgn = chess.pgn.read_game(pgn_io)
+        if game_pgn is None:
+            return jsonify({"status": "error", "message": "Unable to parse PGN."})
+
+        board = chess.Board()
+        for move in game_pgn.mainline_moves():
+            board.push(move)
+
+        evaluation = get_evaluation(board.fen())
+        return jsonify({"status": "success", "fen": board.fen(), "evaluation": evaluation})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 
 # ─── EVALUATE USER SUGGESTED MOVE ────────────────────────────────────────────

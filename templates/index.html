@@ -916,8 +916,20 @@
             console.log('[loadPGNString] PGN loaded successfully');
             pgnLoadComplete = false; // Block moves during load
 
-            // Reset everything cleanly
-            fetch('/reset', { method: 'POST' }).then(() => {
+            fetch('/load_pgn', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pgn: trimmed })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    console.error('[loadPGNString] load_pgn failed:', data);
+                    showToast('❌ Could not load PGN.');
+                    pgnLoadComplete = true;
+                    return;
+                }
+
                 game.load_pgn(trimmed);
                 console.log('[loadPGNString] game.load_pgn() called, game history length:', game.history().length);
 
@@ -933,18 +945,12 @@
                 currentMoveIndex = moveHistoryFens.length - 1;
                 console.log('[loadPGNString] currentMoveIndex set to:', currentMoveIndex);
 
-                board.position(game.fen());
+                board.position(data.fen);
                 updateMoveList();
-                updateEvalBar(0);
+                updateEvalBar(data.evaluation);
                 highlightCurrentMove();
                 $('.square-55d63').removeClass('highlight-check');
                 clearArrows();
-
-                // Tell the backend about the loaded PGN position so future moves stay legal.
-                syncPositionWithBackend().then(() => {
-                    pgnLoadComplete = true; // Allow moves now
-                    console.log('[loadPGNString] Backend synced, moves enabled');
-                });
 
                 // Clear the input fields
                 document.getElementById('pgn-text-input').value = '';
@@ -952,8 +958,14 @@
                 document.getElementById('pgn-drop-label').textContent = '🗂 Drag & drop a .pgn file here';
                 closePGNModalDirect();
 
+                pgnLoadComplete = true;
                 console.log('[loadPGNString] Ready for moves. currentMoveIndex:', currentMoveIndex, 'moveHistoryFens.length:', moveHistoryFens.length);
                 showToast('✅ Game loaded! Use ← → to review.');
+            })
+            .catch(err => {
+                console.error('[loadPGNString] fetch error:', err);
+                showToast('❌ Could not load PGN.');
+                pgnLoadComplete = true;
             });
         }
 
