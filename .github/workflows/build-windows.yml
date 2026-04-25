@@ -23,17 +23,29 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Download Windows Stockfish binary
+        shell: pwsh
+        run: |
+          $url = "https://github.com/official-stockfish/Stockfish/releases/download/sf_17/stockfish-windows-x86-64-avx2.zip"
+          Invoke-WebRequest -Uri $url -OutFile stockfish.zip
+          Expand-Archive -Path stockfish.zip -DestinationPath sf_extracted
+          $exe = Get-ChildItem -Recurse -Filter "stockfish*.exe" sf_extracted | Select-Object -First 1
+          Copy-Item $exe.FullName -Destination engines\stockfish.exe
+          Write-Host "Stockfish binary placed at engines\stockfish.exe"
+          Get-Item engines\stockfish.exe
+
       - name: Create .env for bundle
         run: echo OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} > .env
 
       - name: Build EXE with PyInstaller
-        run: pyinstaller --noconfirm --onedir --windowed --name "ChessmateAI" --add-data "templates;templates" --add-data "static;static" --add-data "engines;engines" --add-data ".env;." --hidden-import flask --hidden-import chess --hidden-import chess.engine --hidden-import openai --hidden-import dotenv app.py
+        run: pyinstaller --noconfirm --onedir --console --name "ChessmateAI" --add-data "templates;templates" --add-data "static;static" --add-data "engines;engines" --add-data ".env;." --hidden-import flask --hidden-import chess --hidden-import chess.engine --hidden-import openai --hidden-import dotenv app.py
 
       - name: Create launcher batch file
         shell: cmd
         run: |
           echo @echo off > dist\ChessmateAI\START.bat
           echo echo Starting Chessmate AI... >> dist\ChessmateAI\START.bat
+          echo echo A console window will appear - do not close it! >> dist\ChessmateAI\START.bat
           echo start http://localhost:5000 >> dist\ChessmateAI\START.bat
           echo ChessmateAI.exe >> dist\ChessmateAI\START.bat
 
