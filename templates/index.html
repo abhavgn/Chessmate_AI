@@ -896,6 +896,9 @@
                 $('.square-55d63').removeClass('highlight-check');
                 clearArrows();
 
+                // Tell the backend about the loaded PGN position so future moves stay legal.
+                syncPositionWithBackend();
+
                 // Clear the input fields
                 document.getElementById('pgn-text-input').value = '';
                 document.getElementById('pgn-file-input').value = '';
