@@ -665,12 +665,20 @@ def explain_move():
             c_val = parse_eval(current_eval)
             eval_delta = c_val - p_val
             turn_count = len(temp_board.move_stack)
-            if isinstance(current_eval, str) and "M-" in current_eval:  category = "Missing Checkmate"
-            elif p_val > 2.5 and eval_delta < -2.0:                      category = "Missed Win"
-            elif eval_delta <= -3.0:                                       category = "Blunder"
-            elif eval_delta <= -1.2:                                       category = "Mistake"
-            elif eval_delta <= -0.6:                                       category = "Inaccuracy"
-            elif turn_count <= 10 and eval_delta >= -0.4:                  category = "Opening/Book Move"
+            if temp_board.is_checkmate():
+                category = "Checkmate"
+            elif isinstance(current_eval, str) and "M-" in current_eval:
+                category = "Missing Checkmate"
+            elif p_val > 2.5 and eval_delta < -2.0:
+                category = "Missed Win"
+            elif eval_delta <= -3.0:
+                category = "Blunder"
+            elif eval_delta <= -1.2:
+                category = "Mistake"
+            elif eval_delta <= -0.6:
+                category = "Inaccuracy"
+            elif turn_count <= 10 and eval_delta >= -0.4:
+                category = "Opening/Book Move"
         except Exception as math_e:
             print(f"Eval Math Error: {math_e}")
 
@@ -691,6 +699,7 @@ def explain_move():
 
         TASK:
         Based on the 'Move Category' of [{category}], explain the move {san_move}.
+        - If [{category}] is 'Checkmate', state clearly that this move delivers checkmate and describe the final mate net using only the provided pieces and squares.
         - If [{category}] is 'Inaccuracy', 'Mistake', 'Blunder', or 'Missing Checkmate', use the provided 'Engine's Best Next Move' and the exact current piece locations to explain how the opponent's {punishing_piece} punishes the user.
         - If [{category}] is 'Missed Win', strictly focus on how they failed to play {missed_best_move} and what {missed_best_move} would have achieved.
         - If [{category}] is 'Opening/Book Move' or 'Good/Positional', ignore the opponent's next move and missed move. Only explain why {san_move} works well.
