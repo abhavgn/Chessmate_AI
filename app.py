@@ -981,6 +981,25 @@ def get_piece_positions(board):
             )
     return ", ".join(positions) if positions else "No pieces on board."
 
+
+def did_coach_ask_question(conversation_log):
+    if not conversation_log:
+        return False
+    for entry in reversed(conversation_log):
+        if entry.get("role") == "assistant":
+            return entry.get("content", "").strip().endswith("?")
+    return False
+
+
+def is_direct_question(text):
+    if not text:
+        return False
+    normalized = text.lower()
+    question_words = ["why", "how", "what", "can i", "should i", "does", "do i", "is it", "would", "could"]
+    if "?" in normalized:
+        return True
+    return any(word in normalized for word in question_words)
+
 @app.route('/ask_coach', methods=['POST'])
 def ask_coach():
     global board
