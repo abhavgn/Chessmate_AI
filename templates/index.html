@@ -109,6 +109,12 @@
                 📂 Load a Game (PGN)
             </button>
 
+            <!-- Flip Board Button — Analysis mode only -->
+            <button id="flip-btn" onclick="toggleFlip()" class="sidebar-control-btn">
+                🔄 Flip Board
+            </button>
+            <span id="orientation-label" class="orientation-label" style="display:none;">Playing as White</span>
+
             <!-- PGN Upload Modal Overlay -->
             <div id="pgn-modal-overlay" onclick="closePGNModal(event)">
                 <div class="pgn-modal-box">
@@ -156,6 +162,7 @@
         var currentGameMode = 'analysis'; 
         let currentElo = 200;
         let playerColor = 'white'; // 'white', 'black', or 'random'
+        let currentPlayerColor = 'white'; // Resolved player color when a new Play AI game starts
         let lastKnownEval = 0;     // tracks current eval for chat context
         let gameInProgress = false;      // true once Start Game is clicked
         let resignConfirmPending = false; // true after first resign click
@@ -175,6 +182,10 @@
         };
 
         board = Chessboard('myBoard', config);
+        const initialModeButton = document.querySelector('.mode-btn.active');
+        if (initialModeButton) {
+            setMode('analysis', initialModeButton);
+        }
 
         function setMode(mode, element) {
             currentGameMode = mode;
@@ -184,20 +195,33 @@
             const evalContainer = document.getElementById('eval-bar-container');
             const eloPanel = document.getElementById('elo-panel');
             const pgnUploadBtn = document.getElementById('pgn-upload-btn');
+            const flipBtn = document.getElementById('flip-btn');
+            const orientationLabel = document.getElementById('orientation-label');
             const takebackRow = document.getElementById('takeback-row');
             const resetBtn = document.getElementById('reset-game-btn');
+            const history = game.history();
 
             if (mode === 'play') {
                 evalContainer.style.display = 'none'; 
                 eloPanel.style.display = 'block';
                 pgnUploadBtn.style.display = 'none';
+                if (flipBtn) flipBtn.style.display = 'none';
+                if (orientationLabel) orientationLabel.style.display = 'none';
                 takebackRow.style.display = gameInProgress ? 'flex' : 'none';
                 resetBtn.style.display = 'none';
             } else {
                 evalContainer.style.display = 'block'; 
                 eloPanel.style.display = 'none';
                 pgnUploadBtn.style.display = 'block';
-                takebackRow.style.display = 'none';
+                if (flipBtn) {
+                    flipBtn.style.display = 'inline-block';
+                    flipBtn.textContent = `🔄 Flip Board${getPlayingSideText()}`;
+                }
+                if (orientationLabel) {
+                    orientationLabel.style.display = 'inline-block';
+                    updateOrientationLabel();
+                }
+                takebackRow.style.display = history.length > 0 ? 'flex' : 'none';
                 resetBtn.style.display = 'inline-block';
             }
         }
@@ -208,10 +232,30 @@
             element.classList.add('active');
         }
 
+        function updateTakebackVisibility() {
+            const takebackRow = document.getElementById('takeback-row');
+            if (!takebackRow) return;
+            if (currentGameMode === 'play') {
+                takebackRow.style.display = gameInProgress ? 'flex' : 'none';
+            } else {
+                takebackRow.style.display = game.history().length > 0 ? 'flex' : 'none';
+            }
+        }
+
         function setColor(color, element) {
             playerColor = color;
             document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
             element.classList.add('active');
+            // Mirror the visual board orientation to the selected player color when valid.
+            if (color === 'white' || color === 'black') {
+                board.orientation(color);
+            }
+
+            if (currentGameMode === 'analysis') {
+                updateOrientationLabel();
+                const flipBtn = document.getElementById('flip-btn');
+                if (flipBtn) flipBtn.textContent = `🔄 Flip Board${getPlayingSideText()}`;
+            }
             // Don't auto-start — wait for the Start Game button
         }
 
@@ -325,6 +369,7 @@
             
             // Refresh highlight in case we just added a move
             highlightCurrentMove();
+            updateTakebackVisibility();
         }
 
         function onDrop(source, target) {
@@ -360,7 +405,7 @@
             }
 
             // Block dragging when it's the engine's turn
-            const engineColor = (playerColor === 'white') ? 'b' : 'w';
+            const engineColor = (currentPlayerColor === 'white') ? 'b' : 'w';
             if (currentGameMode === 'play' && game.turn() === engineColor) {
                 console.log('[onDrop] BLOCKED: Engine turn');
                 return 'snapback';
@@ -418,7 +463,7 @@
 
                     if (currentGameMode === 'play') {
                         // Trigger engine if it's now the engine's turn
-                        const engineColor = (playerColor === 'white') ? 'b' : 'w';
+                        const engineColor = (currentPlayerColor === 'white') ? 'b' : 'w';
                         if (game.turn() === engineColor) {
                             setTimeout(makeEngineMove, 250);
                         }
@@ -518,7 +563,7 @@
                 } else {
                     // Second click — actually resign
                     resignConfirmPending = false;
-                    const winnerColor = playerColor === 'white' ? 'Black' : 'White';
+                    const winnerColor = currentPlayerColor === 'white' ? 'Black' : 'White';
                     $('#end-title').text('You Resigned');
                     $('#end-subtitle').text(winnerColor + ' Wins');
                     $('#game-over-overlay').css('display', 'flex');
@@ -555,10 +600,11 @@
             moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
             currentMoveIndex = 0;
 
-            // Resolve random color choice
+            // Resolve random color choice and remember the actual game color.
             const resolvedColor = (playerColor === 'random')
                 ? (Math.random() < 0.5 ? 'white' : 'black')
                 : playerColor;
+            currentPlayerColor = resolvedColor;
 
             fetch('/reset', { method: 'POST' })
             .then(res => res.json())
@@ -599,6 +645,38 @@
         function clearArrows() {
             const svg = document.getElementById('arrow-svg');
             if (svg) svg.innerHTML = '';
+        }
+
+        function toggleFlip() {
+            // Flip board orientation and keep the analysis role consistent: the player is assumed to be the side shown at the bottom.
+            const current = board.orientation();
+            const newOrientation = current === 'white' ? 'black' : 'white';
+            board.orientation(newOrientation);
+
+            if (currentGameMode === 'analysis') {
+                playerColor = newOrientation;
+                document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+                const colorBtn = document.getElementById(`color-${playerColor}`);
+                if (colorBtn) colorBtn.classList.add('active');
+            }
+
+            updateOrientationLabel();
+            const flipBtn = document.getElementById('flip-btn');
+            if (flipBtn) {
+                flipBtn.textContent = `🔄 Flip Board${getPlayingSideText()}`;
+            }
+        }
+
+        function getPlayingSideText() {
+            const current = board.orientation();
+            return current === 'black' ? ' (Playing as Black)' : ' (Playing as White)';
+        }
+
+        function updateOrientationLabel() {
+            const orientationLabel = document.getElementById('orientation-label');
+            if (!orientationLabel) return;
+            const current = board.orientation();
+            orientationLabel.textContent = current === 'black' ? 'Playing as Black' : 'Playing as White';
         }
 
         function drawBestMoveArrow(fromSq, toSq) {
@@ -1172,30 +1250,54 @@
 
         // ─── TAKEBACK ─────────────────────────────────────────────────────
         function takeback() {
-            if (!gameInProgress) return;
+            if (currentGameMode === 'play' && !gameInProgress) return;
 
-            const totalMoves = game.history().length;
+            const history = game.history();
+            const totalMoves = history.length;
             if (totalMoves === 0) return;
 
-            // If playing as Black and engine went first (odd total moves),
-            // only pop 1. Otherwise pop 2 (player move + engine move).
-            const movesToPop = totalMoves >= 2 ? 2 : 1;
+            let movesToPop = 1;
+            if (currentGameMode === 'play') {
+                const engineColor = currentPlayerColor === 'white' ? 'b' : 'w';
+                const lastMoveColor = (totalMoves - 1) % 2 === 0 ? 'w' : 'b';
+
+                if (lastMoveColor === engineColor) {
+                    // If the engine just moved, take back the full exchange so the user can choose a new reply.
+                    movesToPop = totalMoves >= 2 ? 2 : 1;
+                } else {
+                    // If the user just moved and the engine hasn't replied yet, undo only that user move.
+                    movesToPop = 1;
+                }
+            } else {
+                // In analysis mode, always undo only the very last move played.
+                movesToPop = 1;
+            }
+
+            const currentFen = moveHistoryFens[currentMoveIndex];
+            const historyAtView = game.history().slice(0, currentMoveIndex);
 
             fetch('/takeback', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ moves_to_pop: movesToPop })
+                body: JSON.stringify({
+                    moves_to_pop: movesToPop,
+                    fen: currentFen,
+                    history: historyAtView
+                })
             })
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
-                    // Undo moves in chess.js
-                    for (let i = 0; i < movesToPop; i++) {
+                    const popped = data.popped || 0;
+
+                    // Undo exactly as many plies as the server popped to avoid
+                    // frontend/backend desyncs.
+                    for (let i = 0; i < popped; i++) {
                         game.undo();
                     }
 
                     // Rebuild FEN history to stay in sync
-                    for (let i = 0; i < movesToPop; i++) {
+                    for (let i = 0; i < popped; i++) {
                         if (moveHistoryFens.length > 1) moveHistoryFens.pop();
                     }
                     currentMoveIndex = moveHistoryFens.length - 1;

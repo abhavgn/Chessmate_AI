@@ -336,6 +336,35 @@ body {
     background: rgba(39, 174, 96, 0.07);
 }
 
+#flip-btn {
+    width: auto;
+    background: #1f2937;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: #edf2f7;
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 10px 14px;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+#flip-btn:hover {
+    background: rgba(46, 204, 113, 0.15);
+    border-color: #2ecc71;
+    color: #d1fae5;
+}
+
+.orientation-label {
+    display: inline-block;
+    margin-left: 12px;
+    font-size: 0.9rem;
+    color: #cbd5e1;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
 /* Full-screen modal overlay */
 #pgn-modal-overlay {
     display: none;

@@ -1171,14 +1171,27 @@ Black King Safety: {black_king_safety}
         "RULE 1: CURRENT PIECE LOCATIONS in the CONTEXT is the ONLY truth for what is on each square. "
         "Never use move history, PGN, or outside knowledge to infer where pieces currently are. "
         "If the context does not list a piece on a square, do not say it is there.\n"
-        "RULE 2: Never mention eval scores, centipawns, or any engine number. "
-        "Use only chess language: loses material, strong move, bad trade, winning advantage.\n"
-        "RULE 3: Never say Great question, Certainly, Of course, Sure, or any filler. "
+        "RULE 2: If the student mentions a specific move and it is illegal, your first sentence must be exactly: 'That move is illegal.' "
+        "Then explain the concrete reason using CURRENT PIECE LOCATIONS.\n"
+        "RULE 3: If the student mentions a legal candidate move, judge it from the current board and compare it to the engine's best continuation when useful. "
+        "Say whether it is sound, tactical, or flawed, and explain why in exact pieces/squares.\n"
+        "RULE 4: If the student asks a direct question about the position, answer directly and avoid repeating the same move or capture phrase twice. State the capturing piece once, describe the material result once, and do not ask a new question back.\n"
+        "RULE 5: If you do ask a follow-up question, make it a new question about the resulting placement, the capturing piece, or the concrete consequence on the board.\n"
+        "RULE 6: Never mention eval scores, centipawns, mate distance, or any engine number. "
+        "Use only chess language such as loses material, strong move, bad trade, or winning initiative.\n"
+        "RULE 7: Never say Great question, Certainly, Of course, Sure, or any filler. "
         "Your first word must be about chess.\n"
-        "RULE 4: Never mention more than 4 sentences total.\n"
-        "RULE 5: No bullet points, no numbered lists, no headers.\n"
-        "RULE 6: Only mention pieces and squares that appear in CURRENT PIECE LOCATIONS or Engine Continuation. Never invent.\n\n"
+        "RULE 8: Do not use bullet points, numbered lists, or headers in your final answer.\n"
+        "RULE 9: Do not mention more than 4 sentences total.\n"
+        "RULE 10: Only mention pieces and squares that appear in CURRENT PIECE LOCATIONS or Engine Continuation.\n\n"
 
+        "=== QUESTION TYPES TO HANDLE ===\n"
+        "Specific candidate move questions: 'Is Nf6 good?', 'What about Qh5?', 'Can I play g4?', 'I was thinking of playing Nxg5.'\n"
+        "Tactical failure questions: 'Why is Bc4 bad?', 'Why doesn't Nxd5 work?', 'What is the threat?'\n"
+        "Plan questions: 'Should I castle?', 'How do I improve my bishop?', 'What should I do next?'\n"
+        "Exchange questions: 'Is this trade good?', 'Should I give up the bishop?', 'How do I simplify?'\n"
+        "Legality questions: 'Is Qh5 legal?', 'Can I play e5?', 'Why can't I move the knight to f3?'\n"
+        "Follow-up answers to the coach's previous question: judge whether the student's answer is correct and why.\n\n"
         "=== HOW TO READ THE CONTEXT ===\n"
         "The CONTEXT contains a section called STOCKFISH VERDICT ON USER MENTIONED MOVE. "
         "Inside it, there is a line marked [COACH EYES ONLY — DO NOT STATE THIS TO THE STUDENT IN MODE 1]. "
@@ -1193,7 +1206,8 @@ Black King Safety: {black_king_safety}
         "Sentence 2: Explain the specific tactical problem using CURRENT PIECE LOCATIONS. "
         "Say which piece of theirs is left undefended, or which square becomes weak, or what threat appears. "
         "Be concrete — name the exact piece and square from CURRENT PIECE LOCATIONS.\n"
-        "Sentence 3: Ask the student one specific guiding question that points them toward finding the opponent's punishment move. "
+        "Sentence 3: If the student's message is a direct question about the candidate move, answer it directly instead of asking another question. "
+        "If it is not a direct question, ask the student one specific guiding question that points them toward finding the opponent's punishment move. "
         "Do NOT name the punishment move. Do NOT say what it captures. Just ask them to find it by pointing at the relevant area of the board.\n\n"
 
         "SITUATION B — Previous coach message asked the student a question, and student's answer is CORRECT "
@@ -1274,20 +1288,33 @@ def takeback():
     global board
     data = request.json or {}
     moves_to_pop = data.get('moves_to_pop', 2)
+    fen = data.get('fen')
+    history = data.get('history', [])
 
-    popped = 0
-    for _ in range(moves_to_pop):
-        if len(board.move_stack) > 0:
-            board.pop()
-            popped += 1
+    try:
+        if history:
+            board = chess.Board()
+            for san in history:
+                move = board.parse_san(san)
+                board.push(move)
+        elif fen:
+            board = chess.Board(fen)
 
-    evaluation = get_evaluation(board.fen()) if popped > 0 else 0
-    return jsonify({
-        "status": "success",
-        "fen": board.fen(),
-        "popped": popped,
-        "evaluation": evaluation
-    })
+        popped = 0
+        for _ in range(moves_to_pop):
+            if len(board.move_stack) > 0:
+                board.pop()
+                popped += 1
+
+        evaluation = get_evaluation(board.fen()) if popped > 0 else 0
+        return jsonify({
+            "status": "success",
+            "fen": board.fen(),
+            "popped": popped,
+            "evaluation": evaluation
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 
 if __name__ == '__main__':
