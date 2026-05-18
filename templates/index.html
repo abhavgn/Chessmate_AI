@@ -10,6 +10,18 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 </head>
 <body>
+    <header class="site-header">
+        <div class="brand">
+            <img src="{{ url_for('static', filename='img/main-logo.png') }}" alt="Chessmate AI logo" class="logo-image" onerror="this.style.display='none'">
+            <div class="logo-mark">♟</div>
+        </div>
+        <nav class="site-nav">
+            <a href="/play" class="nav-link active">Play</a>
+            <a href="/saved_games" class="nav-link">Saved Games</a>
+            <a href="/howto" class="nav-link">How to Play</a>
+            <a href="/" class="nav-link">Home</a>
+        </nav>
+    </header>
     <div class="main-container">
         <div id="board-side">
             <h2 style="color: white; text-align: center; margin-top: 0; font-family: sans-serif;">Chessmate AI</h2>
@@ -41,14 +53,20 @@
 
                 </div>
             
-            <div class="board-actions">
+            <div class="board-actions action-ribbon">
                 <button class="action-btn primary" id="explain-btn">Explain Move</button>
                 <button class="action-btn secondary" id="suggest-btn">Best Move?</button>
                 <button class="action-btn danger" id="reset-game-btn" onclick="resetGame()">Reset Game</button>
             </div>
+            <div class="board-actions nav-actions" style="margin-top: 8px;">
+                <button class="action-btn secondary" onclick="stepBackward()">← Previous</button>
+                <button class="action-btn secondary" onclick="jumpToLatest()">Latest ↻</button>
+                <button class="action-btn secondary" onclick="stepForward()">Next →</button>
+            </div>
             <div class="board-actions" id="pgn-actions" style="margin-top: 8px;">
                 <button class="action-btn pgn-btn" id="copy-pgn-btn" onclick="copyPGN()">📋 Copy PGN</button>
                 <button class="action-btn pgn-btn" id="share-btn" onclick="shareGame()">🔗 Share Game</button>
+                <button class="action-btn pgn-btn" id="save-game-btn" onclick="openSaveModal(false)">💾 Save Game</button>
             </div>
 
             <!-- Takeback row — Play AI mode only, shown when game is in progress -->
@@ -76,9 +94,18 @@
         </div>
 
         <div id="sidebar">
+            <div class="app-nav">
+                <a class="nav-link active" href="/play">Chessmate</a>
+                <a class="nav-link" href="/saved_games">Saved Games</a>
+                <a class="nav-link" href="/howto">How to Play</a>
+            </div>
             <div class="mode-toggle">
                 <button class="mode-btn active" onclick="setMode('analysis', this)">Analysis</button>
                 <button class="mode-btn" onclick="setMode('play', this)">Play AI</button>
+            </div>
+            <div class="hint-control-row">
+                <button id="hint-mode-btn" class="action-btn hint-mode-btn active" onclick="toggleAutoHint()">Coach Hints: On</button>
+                <span class="hint-help-text">In Play AI, the coach gives a short hint after each opponent move.</span>
             </div>
 
             <div id="elo-panel" style="display: none;">
@@ -138,6 +165,39 @@
                 </div>
             </div>
 
+            <div id="save-warning-overlay" class="save-warning-overlay" onclick="closeSaveWarningModal(event)">
+                <div class="save-warning-box">
+                    <h3>Unsaved Analysis</h3>
+                    <p>You have analysis moves on the board. Would you like to save them before switching to Play AI?</p>
+                    <div class="save-warning-actions">
+                        <button class="action-btn primary" onclick="saveAndGoToSavedGames(event)">Save & View Saved Games</button>
+                        <button class="action-btn secondary" onclick="continueToPlay(event)">Continue Without Saving</button>
+                        <button class="action-btn danger" onclick="closeSaveWarningModal(event)">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="save-modal-overlay" class="save-modal-overlay" onclick="closeSaveModal(event)">
+                <div class="save-modal-box">
+                    <div class="save-modal-header">
+                        <span>Save Your Game</span>
+                        <button class="save-modal-close" onclick="closeSaveModal(event)">✕</button>
+                    </div>
+                    <div class="save-modal-body">
+                        <label class="save-label">Title
+                            <input type="text" id="save-title-input" placeholder="My Chessmate Game">
+                        </label>
+                        <label class="save-label">Note
+                            <textarea id="save-note-input" placeholder="Add a short note (optional)" rows="3"></textarea>
+                        </label>
+                        <div class="save-modal-actions">
+                            <button class="action-btn primary" onclick="confirmSaveCurrentGame()">Save Game</button>
+                            <button class="action-btn secondary" onclick="closeSaveModal(event)">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="move-history-wrapper">
                 <div class="move-history-header">📜 Move History</div>
                 <div id="move-list" class="move-grid">
@@ -171,6 +231,8 @@
 
         let moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1']; // The starting FEN
         let currentMoveIndex = 0;
+        let pendingModeElement = null;
+        let autoHintMode = true;
 
         // 1. Initialize the board configuration
         var config = {
@@ -188,9 +250,19 @@
         }
 
         function setMode(mode, element) {
+            const previousMode = currentGameMode;
+            if (mode === 'play' && previousMode === 'analysis' && moveHistoryFens.length > 1) {
+                pendingModeElement = element;
+                openSaveWarningModal();
+                return;
+            }
+            applyMode(mode, element);
+        }
+
+        function applyMode(mode, element) {
             currentGameMode = mode;
             document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
-            element.classList.add('active');
+            if (element) element.classList.add('active');
 
             const evalContainer = document.getElementById('eval-bar-container');
             const eloPanel = document.getElementById('elo-panel');
@@ -223,6 +295,91 @@
                 }
                 takebackRow.style.display = history.length > 0 ? 'flex' : 'none';
                 resetBtn.style.display = 'inline-block';
+            }
+        }
+
+        function openSaveWarningModal() {
+            const overlay = document.getElementById('save-warning-overlay');
+            if (overlay) overlay.style.display = 'flex';
+        }
+
+        function closeSaveWarningModal(event) {
+            if (event && event.target !== event.currentTarget) {
+                return;
+            }
+            const overlay = document.getElementById('save-warning-overlay');
+            if (overlay) overlay.style.display = 'none';
+            pendingModeElement = null;
+        }
+
+        function continueToPlay(event) {
+            event.stopPropagation();
+            closeSaveWarningModal(event);
+            if (pendingModeElement) {
+                applyMode('play', pendingModeElement);
+                pendingModeElement = null;
+            }
+        }
+
+        function saveAndGoToSavedGames(event) {
+            event.stopPropagation();
+            closeSaveWarningModal(event);
+            openSaveModal(true);
+        }
+
+        let saveRedirectAfter = false;
+
+        function openSaveModal(redirectToSaved = false) {
+            saveRedirectAfter = redirectToSaved;
+            const overlay = document.getElementById('save-modal-overlay');
+            const titleInput = document.getElementById('save-title-input');
+            const noteInput = document.getElementById('save-note-input');
+            if (titleInput) titleInput.value = 'My Chessmate Game';
+            if (noteInput) noteInput.value = '';
+            if (overlay) overlay.style.display = 'flex';
+        }
+
+        function closeSaveModal(event) {
+            if (event && event.target !== event.currentTarget) {
+                return;
+            }
+            const overlay = document.getElementById('save-modal-overlay');
+            if (overlay) overlay.style.display = 'none';
+        }
+
+        async function confirmSaveCurrentGame() {
+            const pgn = game.pgn();
+            if (!pgn) {
+                showToast('❌ No moves to save yet.', '#c0392b');
+                closeSaveModal();
+                return;
+            }
+
+            const titleInput = document.getElementById('save-title-input');
+            const noteInput = document.getElementById('save-note-input');
+            const title = titleInput && titleInput.value.trim() ? titleInput.value.trim() : 'Untitled Game';
+            const note = noteInput ? noteInput.value.trim() : '';
+
+            const response = await fetch('/save_game', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: title,
+                    note: note,
+                    pgn: pgn,
+                    game_mode: currentGameMode,
+                    fen: game.fen()
+                })
+            }).then(res => res.json());
+
+            if (response.status === 'success') {
+                showToast('✅ Game saved!');
+                closeSaveModal();
+                if (saveRedirectAfter) {
+                    window.location.href = '/saved_games';
+                }
+            } else {
+                showToast('❌ Could not save game.', '#c0392b');
             }
         }
 
@@ -527,12 +684,64 @@
                     
                     updateMoveList();
                     updateCheckHighlight();
+                    if (!game.game_over() && currentGameMode === 'play' && autoHintMode) {
+                        requestAutoHint();
+                    }
                     checkGameOver();
                 }
             })
             .catch(err => {
                 console.error("Communication Breakdowns:", err);
             });
+        }
+
+        function requestAutoHint() {
+            if (game.game_over() || !autoHintMode) return;
+            const historyAtView = game.history().slice(0, currentMoveIndex + 1);
+            const tempGame = new Chess();
+            historyAtView.forEach(move => tempGame.move(move));
+            const pgnAtView = tempGame.pgn();
+            const currentFen = moveHistoryFens[currentMoveIndex];
+            const moveNumber = Math.floor(currentMoveIndex / 2) + 1;
+
+            fetch('/ask_coach', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question: 'Please give a short, practical hint for the player after the opponent move.',
+                    fen: currentFen,
+                    pgn: pgnAtView,
+                    history: historyAtView,
+                    eval: lastKnownEval,
+                    player_color: currentPlayerColor,
+                    game_mode: currentGameMode,
+                    bot_elo: currentElo,
+                    move_number: moveNumber,
+                    conversation_log: coachChatLog.slice(-6)
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    appendChatMessage('bot', '💡 Hint: ' + data.answer, true);
+                }
+            })
+            .catch(err => {
+                console.warn('Auto hint failed:', err);
+            });
+        }
+
+        function toggleAutoHint() {
+            autoHintMode = !autoHintMode;
+            const btn = document.getElementById('hint-mode-btn');
+            if (!btn) return;
+            if (autoHintMode) {
+                btn.classList.add('active');
+                btn.textContent = 'Coach Hints: On';
+            } else {
+                btn.classList.remove('active');
+                btn.textContent = 'Coach Hints: Off';
+            }
         }
 
         function updateEvalBar(evalValue) {
@@ -769,6 +978,31 @@
             }
         }
 
+        function stepBackward() {
+            if (currentMoveIndex > 0) {
+                currentMoveIndex--;
+                board.position(moveHistoryFens[currentMoveIndex]);
+                highlightCurrentMove();
+                syncPositionWithBackend();
+            }
+        }
+
+        function stepForward() {
+            if (currentMoveIndex < moveHistoryFens.length - 1) {
+                currentMoveIndex++;
+                board.position(moveHistoryFens[currentMoveIndex]);
+                highlightCurrentMove();
+                syncPositionWithBackend();
+            }
+        }
+
+        function jumpToLatest() {
+            currentMoveIndex = moveHistoryFens.length - 1;
+            board.position(moveHistoryFens[currentMoveIndex]);
+            highlightCurrentMove();
+            syncPositionWithBackend();
+        }
+
         // --- AI COACH CHAT LOGIC WITH TYPEWRITER EFFECT ---
         function appendChatMessage(sender, text, animate = false) {
             const chatHistory = document.getElementById('chat-history');
@@ -878,7 +1112,10 @@
             fetch("/best_move", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fen: moveHistoryFens[currentMoveIndex] })  // current view position
+                body: JSON.stringify({ 
+                    fen: moveHistoryFens[currentMoveIndex],
+                    history: game.history().slice(0, currentMoveIndex)
+                })  // current view position and history
             })
             .then(res => res.json())
             .then(data => {
@@ -1150,6 +1387,26 @@
         (function loadFromUrl() {
             const params = new URLSearchParams(window.location.search);
             const pgnParam = params.get('pgn');
+            const savedId = params.get('load_game');
+
+            if (savedId) {
+                fetch(`/get_saved_game?id=${encodeURIComponent(savedId)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status !== 'success' || !data.game) {
+                            showToast('❌ Could not load saved game.', '#c0392b');
+                            return;
+                        }
+                        loadPGNString(data.game.pgn);
+                        showToast('📂 Saved game loaded! Use ← → to review.');
+                    })
+                    .catch(() => {
+                        showToast('❌ Could not load saved game.', '#c0392b');
+                    });
+                window.history.replaceState({}, '', window.location.pathname);
+                return;
+            }
+
             if (!pgnParam) return;
 
             const pgn = decodeURIComponent(pgnParam);
@@ -1333,6 +1590,29 @@
             }
         });
 
+    </script>
+
+    <!-- Lenis Library -->
+    <!-- Initialize Lenis & Smooth Header -->
+    <script>
+        const lenis = new Lenis();
+        const header = document.querySelector('.site-header');
+
+        // Tell the header to shrink when scrolled past 50 pixels
+        lenis.on('scroll', (e) => {
+            if (window.scrollY > 50) {
+                header.classList.add('compact');
+            } else {
+                header.classList.remove('compact');
+            }
+        });
+
+        function raf(time) {
+            lenis.raf(time);
+            requestAnimationFrame(raf);
+        }
+
+        requestAnimationFrame(raf);
     </script>
 </body>
 </html>

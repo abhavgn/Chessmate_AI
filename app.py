@@ -1,7 +1,9 @@
 import io
 import os
 import sys
-from flask import Flask, render_template, request, jsonify
+import json
+from datetime import datetime
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 import chess
 import chess.engine
 import chess.pgn
@@ -44,9 +46,11 @@ system_instruction = (
 
     CRITICAL RULES:
     1. Use the provided DATA literally. Only describe the move using the pieces and squares shown.
-    2. If the move is categorized as Mistake, Blunder, or Missing Checkmate, identify the exact opponent piece and exact response move from the provided 'Engine's Best Next Move' data.
-    3. Do not mention engine evaluations, centipawns, or speculative alternative moves.
-    4. Answer in 1 to 4 sentences. No bullet lists. No headers. No fluff.
+    2. If the move is a capture, identify the exact captured piece and the exact square it was taken from.
+    3. If the move gives up material without immediate equal recapture, treat it as a sacrifice, not a simple trade.
+    4. If the move is categorized as Mistake, Blunder, or Missing Checkmate, identify the exact opponent piece and exact response move from the provided 'Engine's Best Next Move' data.
+    5. Do not mention engine evaluations, centipawns, or speculative alternative moves.
+    6. Answer in 1 to 4 sentences. No bullet lists. No headers. No fluff.
 
     CATEGORICAL RESPONSE GUIDELINES:
     - Opening/Book Move: Explain how the move develops a piece, controls center, or frees another piece.
@@ -62,8 +66,16 @@ system_instruction = (
 board = chess.Board()
 
 @app.route('/')
+def home():
+    return render_template('home.html')
+
+@app.route('/play')
 def index():
     return render_template('index.html')
+
+@app.route('/howto')
+def howto():
+    return render_template('howto.html')
 
 def get_engine_path():
     engine_name = "stockfish.exe" if os.name == "nt" else "stockfish"
@@ -73,6 +85,26 @@ def get_engine_path():
     return candidate
 
 engine_path = get_engine_path()
+
+saved_games_file = resource_path('saved_games.json')
+
+if not os.path.exists(saved_games_file):
+    with open(saved_games_file, 'w', encoding='utf-8') as f:
+        json.dump([], f, indent=2)
+
+
+def load_saved_games():
+    try:
+        with open(saved_games_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_saved_games(data):
+    with open(saved_games_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+
 
 def get_evaluation(fen):
     with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
@@ -628,6 +660,19 @@ def explain_move():
         fen_before = temp_board.fen()
         prev_eval = get_evaluation(fen_before)
 
+        is_capture = temp_board.is_capture(user_move)
+        captured_piece_name = None
+        captured_square = None
+        if is_capture:
+            captured_piece = temp_board.piece_at(user_move.to_square)
+            if captured_piece:
+                captured_piece_name = chess.piece_name(captured_piece.piece_type).capitalize()
+                captured_square = chess.square_name(user_move.to_square)
+
+        move_style = "castling" if user_move.is_castling() else (
+            "promotion" if user_move.promotion else ("capture" if is_capture else "quiet")
+        )
+
         missed_best_move = "None"
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
             info_before = engine.analyse(temp_board, chess.engine.Limit(time=0.1))
@@ -685,16 +730,22 @@ def explain_move():
         ai_facing_punishment = punishment_move if category not in ["Opening/Book Move", "Good/Positional Move"] else "N/A"
 
         piece_positions = get_piece_positions(temp_board)
+        current_history = " | ".join(frontend_history) if frontend_history else "Start position"
         prompt = f"""
         DATA:
         - Piece Moved: {moving_piece_name}
         - Move Played: {san_move}
+        - Move Style: {move_style}
+        - Is Capture: {is_capture}
+        - Captured Piece: {captured_piece_name or 'None'}
+        - Captured Square: {captured_square or 'N/A'}
         - Move Category: {category}
         - Evaluation Change: {round(eval_delta, 2)} points
         - Engine's Best Next Move (Opponent Response): {ai_facing_punishment}
         - Punishing Piece: {punishing_piece}
         - Missed Best Move: {missed_best_move}
         - Current Piece Locations: {piece_positions}
+        - Current Game History: {current_history}
         - Current Board FEN: {fen_after}
 
         TASK:
@@ -724,7 +775,8 @@ def explain_move():
 def best_move():
     data = request.json
     current_fen = data.get("fen")
-    move_number = (len(board.move_stack) // 2) + 1
+    history = data.get("history", [])
+    move_number = (len(history) // 2) + 1
     temp_board = chess.Board(current_fen) if current_fen else chess.Board()
 
     if temp_board.is_game_over():
@@ -738,6 +790,14 @@ def best_move():
             info = engine.analyse(temp_board, chess.engine.Limit(time=1.5))
             best_move_obj = info["pv"][0]
             san_move = temp_board.san(best_move_obj)
+            is_capture = temp_board.is_capture(best_move_obj)
+            captured_piece_name = None
+            captured_square = None
+            if is_capture:
+                captured_piece = temp_board.piece_at(best_move_obj.to_square)
+                if captured_piece:
+                    captured_piece_name = chess.piece_name(captured_piece.piece_type).capitalize()
+                    captured_square = chess.square_name(best_move_obj.to_square)
             pv_san = []
             test_board = temp_board.copy()
             for m in info["pv"][:4]:
@@ -755,19 +815,32 @@ def best_move():
                     pv_san.append(f"{turn_label} plays {test_board.san(m)}")
                 test_board.push(m)
             expected_line_list = "\n".join([f"- {m}" for m in pv_san])
-            game_history = []
-            hist_board = chess.Board()
-            for move in board.move_stack:
-                game_history.append(hist_board.san(move))
-                hist_board.push(move)
             moving_piece = temp_board.piece_at(best_move_obj.from_square)
             moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize() if moving_piece else "Piece"
 
         tactical_facts = get_tactical_facts(temp_board)
         piece_positions = get_piece_positions(temp_board)
+        current_history = "; ".join(history) if history else "Start position"
+        move_type = "capture" if is_capture else ("castling" if best_move_obj.is_castling() else "quiet")
 
         prompt = f"""
             DATA:
+            - Move Number: {move_number}
+            - Recommended Move: {san_move}
+            - Move Type: {move_type}
+            - Captures Piece: {'Yes' if is_capture else 'No'}
+            - Captured Piece: {captured_piece_name or 'None'}
+            - Captured Square: {captured_square or 'N/A'}
+            - Piece Moving: {moving_piece_name}
+            - Material Status: {material_status}
+            - Tactical Facts (Ground Truth): {tactical_facts}
+            - Engine's Expected Continuation: {expected_line_list}
+            - Current Game History: {current_history}
+            - Current Board FEN: {temp_board.fen()}
+            - CURRENT PIECE LOCATIONS (authoritative — use ONLY these to identify what is on each square, never infer from move history): {piece_positions}
+
+            TASK:
+
             - Move Number: {move_number}
             - Recommended Move: {san_move}
             - Piece Moving: {moving_piece_name}
@@ -853,6 +926,52 @@ def load_pgn():
         return jsonify({"status": "success", "fen": board.fen(), "evaluation": evaluation})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route('/save_game', methods=['POST'])
+def save_game():
+    data = request.json
+    pgn = data.get('pgn', '').strip()
+    title = data.get('title', '').strip() or 'Untitled Game'
+    game_mode = data.get('game_mode', 'analysis')
+    note = data.get('note', '')
+    fen = data.get('fen', '')
+    if not pgn:
+        return jsonify({"status": "error", "message": "No PGN to save."}), 400
+
+    saved_games = load_saved_games()
+    game_id = str(int(datetime.utcnow().timestamp() * 1000))
+    saved_game = chess.pgn.read_game(io.StringIO(pgn))
+    move_count = sum(1 for _ in saved_game.mainline_moves()) if saved_game else 0
+    saved_games.append({
+        "id": game_id,
+        "title": title,
+        "created_at": datetime.utcnow().isoformat() + 'Z',
+        "game_mode": game_mode,
+        "note": note,
+        "pgn": pgn,
+        "fen": fen,
+        "move_count": move_count
+    })
+    save_saved_games(saved_games)
+    return jsonify({"status": "success", "id": game_id})
+
+
+@app.route('/get_saved_game')
+def get_saved_game():
+    game_id = request.args.get('id')
+    saved_games = load_saved_games()
+    for item in saved_games:
+        if item.get('id') == game_id:
+            return jsonify({"status": "success", "game": item})
+    return jsonify({"status": "error", "message": "Saved game not found."}), 404
+
+
+@app.route('/saved_games')
+def saved_games():
+    saved_games = load_saved_games()
+    saved_games.sort(key=lambda item: item.get('created_at', ''), reverse=True)
+    return render_template('saved_games.html', saved_games=saved_games)
 
 
 # ─── EVALUATE USER SUGGESTED MOVE ────────────────────────────────────────────

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chessmate AI — Home</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="home-body">
+    <header class="site-header home-header">
+        <div class="brand">
+            <img src="{{ url_for('static', filename='img/main-logo.png') }}" alt="Chessmate AI logo" class="logo-image" onerror="this.style.display='none'">
+            <div class="logo-mark">♟</div>
+        </div>
+        <nav class="site-nav">
+            <a href="/" class="nav-link active">Home</a>
+            <a href="/play" class="nav-link">Play</a>
+            <a href="/howto" class="nav-link">How to Play</a>
+            <a href="/saved_games" class="nav-link">Saved Games</a>
+        </nav>
+    </header>
+    <div class="home-shell">
+        <header class="hero-panel">
+            <div class="hero-badge">Chessmate AI</div>
+            <h1>Learn chess faster with coaching, analysis, and play.</h1>
+            <p>Instant board insights, move-by-move guidance, and a smarter way to practice. Start with analysis, then switch safely to Play AI when you’re ready.</p>
+            <div class="hero-actions">
+                <a href="/play" class="hero-btn primary">Launch Chessmate</a>
+                <a href="/howto" class="hero-btn secondary">How to Play</a>
+            </div>
+        </header>
+
+        <section class="feature-grid">
+            <article class="feature-card gradient-card">
+                <h2>Front Page Experience</h2>
+                <p>Start from a polished landing page that introduces Chessmate and guides new players to analysis, play, and saved games.</p>
+            </article>
+            <article class="feature-card gradient-card">
+                <h2>Move Navigation</h2>
+                <p>Use on-screen Previous / Next / Latest buttons to step through game history without relying on keyboard arrows.</p>
+            </article>
+            <article class="feature-card gradient-card">
+                <h2>Auto Coach Hints</h2>
+                <p>In Play AI mode, the coach can chime in automatically after each opponent move with a concrete hint.</p>
+            </article>
+            <article class="feature-card gradient-card">
+                <h2>Save & Resume Games</h2>
+                <p>Save analysis sessions, browse saved games, and reopen them with board previews when you want to continue.</p>
+            </article>
+        </section>
+
+        <footer class="home-footer">
+            <div>Built for chess students, clubs, and anyone who wants to learn from every position.</div>
+            <div class="footer-links">
+                <a href="/howto">How to Play</a>
+                <a href="/play">Open Chessmate</a>
+            </div>
+        </footer>
+    </div>
+    <script>
+        (function() {
+            const header = document.querySelector('.site-header');
+            if (!header) return;
+            const threshold = 80;
+            const updateHeader = () => {
+                if (window.scrollY > threshold) {
+                    header.classList.add('compact');
+                } else {
+                    header.classList.remove('compact');
+                }
+            };
+            window.addEventListener('scroll', updateHeader, { passive: true });
+            updateHeader();
+        })();
+    </script>
+</body>
+</html>

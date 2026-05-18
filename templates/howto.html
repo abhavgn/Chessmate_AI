@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chessmate AI — How to Play</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="home-body">
+    <header class="site-header home-header">
+        <div class="brand">
+            <img src="{{ url_for('static', filename='img/main-logo.png') }}" alt="Chessmate AI logo" class="logo-image" onerror="this.style.display='none'">
+            <div class="logo-mark">♟</div>
+        </div>
+        <nav class="site-nav">
+            <a href="/" class="nav-link">Home</a>
+            <a href="/play" class="nav-link">Play</a>
+            <a href="/howto" class="nav-link active">How to Play</a>
+            <a href="/saved_games" class="nav-link">Saved Games</a>
+        </nav>
+    </header>
+    <div class="home-shell howto-shell">
+        <header class="hero-panel minimal">
+            <div class="hero-badge">How to Play</div>
+            <h1>Learn the interface and get playing fast.</h1>
+            <p>Use this guide to move through games, load PGN, and understand the AI coach.</p>
+            <div class="hero-actions">
+                <a href="/play" class="hero-btn primary">Start Playing</a>
+                <a href="/" class="hero-btn secondary">Go Back Home</a>
+            </div>
+        </header>
+
+        <section class="howto-list">
+            <div class="howto-step">
+                <h2>1. Start with Analysis</h2>
+                <p>Use the Analysis mode to explore positions, load games, and ask the AI coach questions.</p>
+            </div>
+            <div class="howto-step">
+                <h2>2. Use the new move buttons</h2>
+                <p>Tap the <strong>Previous</strong> and <strong>Next</strong> buttons to step through the game history one move at a time.</p>
+            </div>
+            <div class="howto-step">
+                <h2>3. Try the coach</h2>
+                <p>Tap Explain Move, Best Move, or type a question in chat. In Play AI, the coach can also provide automatic hints after the opponent moves.</p>
+            </div>
+            <div class="howto-step">
+                <h2>4. Play AI safely</h2>
+                <p>Switch to Play AI when you want a fresh challenge. If you have unsaved analysis moves, the app will warn you with a page UI before switching.</p>
+            </div>
+            <div class="howto-step">
+                <h2>5. Save or share your games</h2>
+                <p>Save a game to the library, then reopen it from Saved Games. Each saved entry includes a board preview of the final position.</p>
+            </div>
+        </section>
+    </div>
+</body>
+</html>

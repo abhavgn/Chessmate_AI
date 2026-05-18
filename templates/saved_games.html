@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saved Games — Chessmate AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+</head>
+<body class="home-body">
+    <header class="site-header home-header">
+        <div class="brand">
+            <img src="{{ url_for('static', filename='img/main-logo.png') }}" alt="Chessmate AI logo" class="logo-image" onerror="this.style.display='none'">
+            <div class="logo-mark">♟</div>
+        </div>
+        <nav class="site-nav">
+            <a href="/" class="nav-link">Home</a>
+            <a href="/play" class="nav-link">Play</a>
+            <a href="/howto" class="nav-link">How to Play</a>
+            <a href="/saved_games" class="nav-link active">Saved Games</a>
+        </nav>
+    </header>
+    <div class="home-shell howto-shell">
+        <header class="hero-panel minimal">
+            <div class="hero-badge">Saved Games</div>
+            <h1>Your saved games</h1>
+            <p>Pick any saved position to reopen it in the analysis board and continue from where you left off.</p>
+            <div class="hero-actions">
+                <a href="/play" class="hero-btn primary">Back to Chessmate</a>
+                <a href="/" class="hero-btn secondary">Home</a>
+            </div>
+        </header>
+
+        <section class="howto-list saved-list">
+            {% if saved_games %}
+                {% for game in saved_games %}
+                    <div class="saved-card">
+                        <div class="saved-card-header">
+                            <div>
+                                <h2>{{ game.title }}</h2>
+                                <p class="saved-meta">Saved on {{ game.created_at.replace('T',' ').replace('Z','') }} · {{ game.move_count }} moves · {{ game.game_mode.capitalize() }}</p>
+                            </div>
+                            <a href="/play?load_game={{ game.id }}" class="hero-btn secondary">Load</a>
+                        </div>
+                        <div class="saved-mini-board" data-fen="{{ game.fen }}"></div>
+                        {% if game.note %}
+                            <p class="saved-note">{{ game.note }}</p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="saved-card">
+                    <p>No saved games yet. Save a game from the main board to see it here.</p>
+                </div>
+            {% endif %}
+        </section>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.saved-mini-board').forEach(function(boardContainer) {
+                const fen = boardContainer.getAttribute('data-fen') || 'start';
+                const miniBoard = Chessboard(boardContainer, {
+                    position: fen,
+                    draggable: false,
+                    pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+                    showNotation: false,
+                    snapbackSpeed: 0,
+                    moveSpeed: 0,
+                    appearSpeed: 0
+                });
+            });
+        });
+    </script>
+</body>
+</html>
