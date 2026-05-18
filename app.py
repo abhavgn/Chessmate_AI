@@ -627,149 +627,242 @@ def game_summary():
         return jsonify({"status": "error", "message": str(e)})
 
 
+"""
+REPLACEMENT for the /explain_move route in app.py.
+The core fix: we now rebuild the board state by replaying move history from
+scratch (never trusting the global board variable), capture exact piece
+identity BEFORE and AFTER the move using python-chess, and inject a
+GROUND TRUTH DATA block that the LLM must copy verbatim.
+
+The previous bug: when the engine sacrificed a rook, the frontend sent a
+FEN/history that was sometimes one ply behind, so 'captured_piece' pointed
+to the wrong piece. We now use the history list as the single source of
+truth and derive the board state ourselves.
+
+Copy this entire function into app.py, replacing the existing
+@app.route('/explain_move') block.
+"""
+
 @app.route('/explain_move', methods=['POST'])
 def explain_move():
     global board
-    data = request.json or {}
-    mode = data.get("mode", "analysis")
+    data      = request.json or {}
+    mode      = data.get("mode", "analysis")
     player_color = data.get("player_color", "white")
-    frontend_history = data.get("history", [])
+    frontend_history = data.get("history", [])   # SAN list UP TO (but not including) the move to explain
 
-    if frontend_history:
-        temp_board = chess.Board()
-        for san in frontend_history:
-            try:
-                move = temp_board.parse_san(san)
-                temp_board.push(move)
-            except Exception:
-                pass
-        board = temp_board.copy()
-    else:
-        temp_board = board.copy()
+    # ── 1. Replay from starting position using the SAN history ────────────
+    # This is the ONLY reliable way to know what is on each square.
+    # We never trust the global `board` or the incoming FEN for piece identity.
+    replay = chess.Board()
+    for san in frontend_history:
+        try:
+            replay.push(replay.parse_san(san))
+        except Exception:
+            pass   # skip unparseable tokens; board keeps going
 
-    if len(temp_board.move_stack) == 0:
+    if len(replay.move_stack) == 0:
         return jsonify({"status": "error", "message": "Make a move first!"})
 
+    # The LAST move on the replay stack is the move we are explaining.
+    # Pop it to inspect the position BEFORE the move.
+    move_obj      = replay.pop()          # undo last move → board is now PRE-move
+    board_before  = replay.copy()         # snapshot before the move
+    move_san_display = board_before.san(move_obj)   # human-readable SAN
+
+    # ── 2. Collect authoritative ground-truth from python-chess ───────────
+    moving_piece_obj  = board_before.piece_at(move_obj.from_square)
+    captured_piece_obj= board_before.piece_at(move_obj.to_square)
+
+    # En-passant capture: the captured pawn is NOT on to_square
+    ep_captured_sq    = None
+    if board_before.is_en_passant(move_obj):
+        direction        = 1 if board_before.turn == chess.WHITE else -1
+        ep_captured_sq   = move_obj.to_square - direction * 8
+        captured_piece_obj = board_before.piece_at(ep_captured_sq)
+
+    moving_piece_name   = chess.piece_name(moving_piece_obj.piece_type).capitalize()  if moving_piece_obj   else "Unknown"
+    moving_piece_color  = ("White" if moving_piece_obj.color == chess.WHITE else "Black") if moving_piece_obj else "Unknown"
+    moving_from_sq      = chess.square_name(move_obj.from_square)
+    moving_to_sq        = chess.square_name(move_obj.to_square)
+
+    is_capture          = board_before.is_capture(move_obj)
+    is_castling         = board_before.is_castling(move_obj)
+    is_en_passant       = board_before.is_en_passant(move_obj)
+    is_promotion        = bool(move_obj.promotion)
+    gives_check         = board_before.gives_check(move_obj)
+
+    captured_piece_name  = chess.piece_name(captured_piece_obj.piece_type).capitalize() if captured_piece_obj else None
+    captured_piece_color = ("White" if captured_piece_obj.color == chess.WHITE else "Black") if captured_piece_obj else None
+    captured_square      = chess.square_name(ep_captured_sq if ep_captured_sq else move_obj.to_square) if captured_piece_obj else None
+
+    # ── 3. Apply the move and collect post-move facts ─────────────────────
+    board_after = board_before.copy()
+    board_after.push(move_obj)
+    board = board_after.copy()   # keep global board in sync
+
+    fen_before = board_before.fen()
+    fen_after  = board_after.fen()
+
+    # ── 4. Evaluations ────────────────────────────────────────────────────
     try:
-        if mode == 'play' and len(temp_board.move_stack) >= 2:
-            player_chess_color = chess.BLACK if player_color == 'black' else chess.WHITE
-            if temp_board.turn == player_chess_color:
-                temp_board.pop()
-
-        user_move = temp_board.pop()
-        fen_before = temp_board.fen()
         prev_eval = get_evaluation(fen_before)
+    except Exception:
+        prev_eval = 0.0
 
-        is_capture = temp_board.is_capture(user_move)
-        captured_piece_name = None
-        captured_square = None
-        if is_capture:
-            captured_piece = temp_board.piece_at(user_move.to_square)
-            if captured_piece:
-                captured_piece_name = chess.piece_name(captured_piece.piece_type).capitalize()
-                captured_square = chess.square_name(user_move.to_square)
+    try:
+        current_eval = get_evaluation(fen_after)
+    except Exception:
+        current_eval = 0.0
 
-        move_style = "castling" if user_move.is_castling() else (
-            "promotion" if user_move.promotion else ("capture" if is_capture else "quiet")
+    # ── 5. Engine's best move BEFORE (what we missed) ─────────────────────
+    missed_best_move = "None"
+    try:
+        with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
+            info_before = engine.analyse(board_before, chess.engine.Limit(time=0.15))
+            if "pv" in info_before and info_before["pv"]:
+                missed_best_move = board_before.san(info_before["pv"][0])
+    except Exception:
+        pass
+
+    # ── 6. Engine's PUNISHMENT move AFTER ────────────────────────────────
+    punishment_move  = "None"
+    punishing_piece  = "opponent"
+    try:
+        with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
+            info_after = engine.analyse(board_after, chess.engine.Limit(time=0.15))
+            if "pv" in info_after and info_after["pv"]:
+                punishment_move = board_after.san(info_after["pv"][0])
+                p_char   = punishment_move[0]
+                piece_map= {'Q':'Queen','R':'Rook','B':'Bishop','N':'Knight','K':'King'}
+                punishing_piece = piece_map.get(p_char, "Pawn")
+    except Exception:
+        pass
+
+    # ── 7. Eval delta → category ──────────────────────────────────────────
+    def parse_eval(e):
+        if isinstance(e, str) and "M" in str(e):
+            return 20.0 if "-" not in str(e) else -20.0
+        try:
+            return float(e)
+        except Exception:
+            return 0.0
+
+    # Eval is always from White's perspective; normalise for the side that moved
+    p_val   = parse_eval(prev_eval)
+    c_val   = parse_eval(current_eval)
+    # Delta from the perspective of the side that just moved
+    mover_is_white = (board_before.turn == chess.WHITE)
+    eval_delta = (c_val - p_val) if mover_is_white else (p_val - c_val)
+
+    turn_count = len(board_after.move_stack)
+    category   = "Good/Positional Move"
+    if board_after.is_checkmate():
+        category = "Checkmate"
+    elif isinstance(current_eval, str) and "M-" in str(current_eval):
+        category = "Missing Checkmate"
+    elif p_val > 2.5 and eval_delta < -2.0:
+        category = "Missed Win"
+    elif eval_delta <= -3.0:
+        category = "Blunder"
+    elif eval_delta <= -1.2:
+        category = "Mistake"
+    elif eval_delta <= -0.6:
+        category = "Inaccuracy"
+    elif turn_count <= 10 and eval_delta >= -0.4:
+        category = "Opening/Book Move"
+
+    ai_punishment = punishment_move if category not in ["Opening/Book Move", "Good/Positional Move", "Checkmate"] else "N/A"
+
+    # ── 8. Piece positions AFTER the move (for grounding) ─────────────────
+    piece_positions_after = get_piece_positions(board_after)
+
+    # ── 9. Build a GROUND TRUTH DATA block the LLM must treat as gospel ───
+    # The key insight: if we give the LLM explicit TRUE/FALSE flags for
+    # "was a piece captured?" and the exact identities, it cannot confabulate.
+    capture_block = "CAPTURE: None. No piece was taken on this move."
+    if is_capture and captured_piece_obj:
+        net_material = (PIECE_VALUES.get(captured_piece_obj.piece_type, 0)
+                        - PIECE_VALUES.get(moving_piece_obj.piece_type, 0))
+        recap_warning = ""
+        if net_material < 0:
+            recap_warning = (
+                f"\n  ⚠ NET MATERIAL: Capturing piece worth "
+                f"{PIECE_VALUES.get(moving_piece_obj.piece_type,0)} pts takes "
+                f"{PIECE_VALUES.get(captured_piece_obj.piece_type,0)} pt piece — "
+                f"net LOSS of {abs(net_material)} pt(s). This is a SACRIFICE, not a free capture."
+            )
+        elif net_material == 0:
+            recap_warning = "\n  → Equal trade (same-value pieces)."
+        else:
+            recap_warning = f"\n  → Winning capture: gains {net_material} pt(s)."
+
+        ep_note = " (en passant)" if is_en_passant else ""
+        capture_block = (
+            f"CAPTURE: YES{ep_note}.\n"
+            f"  Piece taken:  {captured_piece_color} {captured_piece_name} on {captured_square}\n"
+            f"  Taken by:     {moving_piece_color} {moving_piece_name} (moved from {moving_from_sq} to {moving_to_sq})"
+            f"{recap_warning}"
         )
 
-        missed_best_move = "None"
-        with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
-            info_before = engine.analyse(temp_board, chess.engine.Limit(time=0.1))
-            if "pv" in info_before and len(info_before["pv"]) > 0:
-                missed_best_move = temp_board.san(info_before["pv"][0])
+    castling_block = ""
+    if is_castling:
+        side = "kingside" if chess.square_file(move_obj.to_square) == 6 else "queenside"
+        castling_block = f"\nSPECIAL: CASTLING ({side}). King and rook swap — this is NOT a capture."
 
-        moving_piece = temp_board.piece_at(user_move.from_square)
-        moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize() if moving_piece else "Piece"
-        san_move = temp_board.san(user_move)
+    promotion_block = ""
+    if is_promotion:
+        promo_piece = chess.piece_name(move_obj.promotion).capitalize()
+        promotion_block = f"\nSPECIAL: PROMOTION — pawn promotes to {promo_piece}."
 
-        temp_board.push(user_move)
-        fen_after = temp_board.fen()
-        current_eval = get_evaluation(fen_after)
+    check_block = f"\nGIVES CHECK: {'YES — the opponent king is now in check.' if gives_check else 'No.'}"
 
-        punishment_move = "None"
-        with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
-            info_after = engine.analyse(temp_board, chess.engine.Limit(time=0.1))
-            if "pv" in info_after and len(info_after["pv"]) > 0:
-                punishment_move = temp_board.san(info_after["pv"][0])
+    ground_truth = f"""
+╔══════════════════════════════════════════════════════════
+  AUTHORITATIVE MOVE FACTS — NEVER CONTRADICT THESE
+══════════════════════════════════════════════════════════╗
+MOVE PLAYED:    {move_san_display}
+PIECE THAT MOVED: {moving_piece_color} {moving_piece_name} — from {moving_from_sq} to {moving_to_sq}
+{capture_block}{castling_block}{promotion_block}{check_block}
+MOVE CATEGORY:  {category}
+EVAL CHANGE:    {round(eval_delta, 2):+.2f} pts (from mover's perspective)
+ENGINE BEST (before this move):   {missed_best_move}
+OPPONENT'S BEST RESPONSE (after): {ai_punishment}   ← punishing piece = {punishing_piece}
 
-        punishing_piece = "opponent"
-        if punishment_move != "None":
-            p_char = punishment_move[0]
-            piece_map = {'Q': 'Queen', 'R': 'Rook', 'B': 'Bishop', 'N': 'Knight', 'K': 'King'}
-            punishing_piece = piece_map.get(p_char, "Pawn")
+CURRENT PIECE LOCATIONS (after move — use ONLY these for square references):
+{piece_positions_after}
 
-        category = "Good/Positional Move"
-        eval_delta = 0.0
-        try:
-            def parse_eval(e):
-                if isinstance(e, str) and "M" in e:
-                    return 20.0 if not "-" in e else -20.0
-                return float(e)
-            p_val = parse_eval(prev_eval)
-            c_val = parse_eval(current_eval)
-            eval_delta = c_val - p_val
-            turn_count = len(temp_board.move_stack)
-            if temp_board.is_checkmate():
-                category = "Checkmate"
-            elif isinstance(current_eval, str) and "M-" in current_eval:
-                category = "Missing Checkmate"
-            elif p_val > 2.5 and eval_delta < -2.0:
-                category = "Missed Win"
-            elif eval_delta <= -3.0:
-                category = "Blunder"
-            elif eval_delta <= -1.2:
-                category = "Mistake"
-            elif eval_delta <= -0.6:
-                category = "Inaccuracy"
-            elif turn_count <= 10 and eval_delta >= -0.4:
-                category = "Opening/Book Move"
-        except Exception as math_e:
-            print(f"Eval Math Error: {math_e}")
+GAME HISTORY SO FAR: {' '.join(frontend_history)}
+╚══════════════════════════════════════════════════════════╝"""
 
-        ai_facing_punishment = punishment_move if category not in ["Opening/Book Move", "Good/Positional Move"] else "N/A"
+    prompt = f"""
+{ground_truth}
 
-        piece_positions = get_piece_positions(temp_board)
-        current_history = " | ".join(frontend_history) if frontend_history else "Start position"
-        prompt = f"""
-        DATA:
-        - Piece Moved: {moving_piece_name}
-        - Move Played: {san_move}
-        - Move Style: {move_style}
-        - Is Capture: {is_capture}
-        - Captured Piece: {captured_piece_name or 'None'}
-        - Captured Square: {captured_square or 'N/A'}
-        - Move Category: {category}
-        - Evaluation Change: {round(eval_delta, 2)} points
-        - Engine's Best Next Move (Opponent Response): {ai_facing_punishment}
-        - Punishing Piece: {punishing_piece}
-        - Missed Best Move: {missed_best_move}
-        - Current Piece Locations: {piece_positions}
-        - Current Game History: {current_history}
-        - Current Board FEN: {fen_after}
+TASK:
+Based on the MOVE CATEGORY [{category}], explain the move {move_san_display} to the student.
 
-        TASK:
-        Based on the 'Move Category' of [{category}], explain the move {san_move}.
-        - If [{category}] is 'Checkmate', state clearly that this move delivers checkmate and describe the final mate net using only the provided pieces and squares.
-        - If [{category}] is 'Inaccuracy', 'Mistake', 'Blunder', or 'Missing Checkmate', use the provided 'Engine's Best Next Move' and the exact current piece locations to explain how the opponent's {punishing_piece} punishes the user.
-        - If [{category}] is 'Missed Win', strictly focus on how they failed to play {missed_best_move} and what {missed_best_move} would have achieved.
-        - If [{category}] is 'Opening/Book Move' or 'Good/Positional', ignore the opponent's next move and missed move. Only explain why {san_move} works well.
-        - Use only the pieces and squares listed in Current Piece Locations. Do not invent any square or piece identity.
-        """
+STRICT RULES — NEVER BREAK THESE:
+1. The AUTHORITATIVE MOVE FACTS above are 100% correct. Never contradict them.
+2. If CAPTURE says "None", do NOT say any piece was taken. If CAPTURE says YES, name EXACTLY those pieces.
+3. If CASTLING is listed, describe only the castling — do NOT call it a capture.
+4. Use only pieces and squares from CURRENT PIECE LOCATIONS. Never invent a square.
+5. Do not mention eval numbers, centipawns, or engine scores.
+6. 1–4 sentences only. No bullet points, no headers.
+"""
+
+    try:
         response = client.chat.completions.create(
             model=DEFAULT_CHAT_MODEL,
             messages=[
                 {"role": "system", "content": system_instruction},
-                {"role": "user", "content": prompt}
+                {"role": "user",   "content": prompt}
             ],
-            temperature=0.3
+            temperature=0.2    # lower temperature → less hallucination
         )
         return jsonify({"status": "success", "explanation": response.choices[0].message.content})
-
     except Exception as e:
-        print(f"!!! OPENAI COACH ERROR: {str(e)}")
+        print(f"!!! EXPLAIN_MOVE ERROR: {e}")
         return jsonify({"status": "error", "message": "Failed to analyze move."})
-
 
 @app.route('/best_move', methods=['POST'])
 def best_move():

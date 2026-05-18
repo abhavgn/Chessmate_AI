@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="home-body">
+
     <header class="site-header home-header">
         <div class="brand">
             <img src="{{ url_for('static', filename='img/main-logo.png') }}" alt="Chessmate AI logo" class="logo-image" onerror="this.style.display='none'">
@@ -19,36 +20,205 @@
             <a href="/saved_games" class="nav-link">Saved Games</a>
         </nav>
     </header>
-    <div class="home-shell">
-        <header class="hero-panel">
-            <div class="hero-badge">Chessmate AI</div>
-            <h1>Learn chess faster with coaching, analysis, and play.</h1>
-            <p>Instant board insights, move-by-move guidance, and a smarter way to practice. Start with analysis, then switch safely to Play AI when you’re ready.</p>
-            <div class="hero-actions">
-                <a href="/play" class="hero-btn primary">Launch Chessmate</a>
-                <a href="/howto" class="hero-btn secondary">How to Play</a>
-            </div>
-        </header>
 
-        <section class="feature-grid">
-            <article class="feature-card gradient-card">
-                <h2>Front Page Experience</h2>
-                <p>Start from a polished landing page that introduces Chessmate and guides new players to analysis, play, and saved games.</p>
-            </article>
-            <article class="feature-card gradient-card">
-                <h2>Move Navigation</h2>
-                <p>Use on-screen Previous / Next / Latest buttons to step through game history without relying on keyboard arrows.</p>
-            </article>
-            <article class="feature-card gradient-card">
-                <h2>Auto Coach Hints</h2>
-                <p>In Play AI mode, the coach can chime in automatically after each opponent move with a concrete hint.</p>
-            </article>
-            <article class="feature-card gradient-card">
-                <h2>Save & Resume Games</h2>
-                <p>Save analysis sessions, browse saved games, and reopen them with board previews when you want to continue.</p>
-            </article>
+    <div class="home-shell">
+
+        <!-- ── HERO ─────────────────────────────────────────────── -->
+        <section class="home-hero">
+            <div class="home-hero-text">
+                <div class="hero-eyebrow">AI-Powered Chess Coaching</div>
+                <h1 class="home-hero-title">Your personal<br><span class="gold-gradient">grandmaster</span><br>on demand.</h1>
+                <p class="home-hero-sub">Instant move analysis, a Socratic AI coach, and adjustable opponents from 200 to 2800 ELO — all in one board.</p>
+                <div class="home-hero-actions">
+                    <a href="/play" class="hero-btn primary">▶ Start Playing</a>
+                    <a href="/howto" class="hero-btn secondary">How it works</a>
+                </div>
+                <div class="home-hero-stats">
+                    <div class="hero-stat"><span class="hero-stat-num">8</span><span class="hero-stat-label">ELO levels</span></div>
+                    <div class="hero-stat-divider"></div>
+                    <div class="hero-stat"><span class="hero-stat-num">∞</span><span class="hero-stat-label">positions to analyze</span></div>
+                    <div class="hero-stat-divider"></div>
+                    <div class="hero-stat"><span class="hero-stat-num">AI</span><span class="hero-stat-label">powered coach</span></div>
+                </div>
+            </div>
+            <div class="home-hero-board" aria-hidden="true">
+                <div class="hero-board-glow"></div>
+                <div class="hero-board-grid">
+                    <!-- decorative chessboard pattern -->
+                    <div class="hb-row">
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l piece-n">♞</div>
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l piece-p">♟</div><div class="hb-sq d"></div>
+                        <div class="hb-sq l piece-active"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                        <div class="hb-sq d piece-P">♙</div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq l"></div><div class="hb-sq d piece-B">♗</div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                    </div>
+                </div>
+                <!-- Floating coach bubble -->
+                <div class="hero-coach-bubble">
+                    <div class="coach-bubble-icon">🤖</div>
+                    <div class="coach-bubble-text">
+                        <strong>Coach:</strong> The knight on d5 is a powerful outpost — supported by your pawn on c3.
+                    </div>
+                </div>
+                <!-- Floating eval -->
+                <div class="hero-eval-bubble">
+                    <div class="hero-eval-label">Eval</div>
+                    <div class="hero-eval-bar"><div class="hero-eval-fill" style="width:62%"></div></div>
+                    <div class="hero-eval-num">+0.8</div>
+                </div>
+            </div>
         </section>
 
+        <!-- ── HOW IT WORKS ──────────────────────────────────────── -->
+        <section class="home-section">
+            <div class="home-section-header">
+                <div class="section-badge">How it works</div>
+                <h2 class="section-title">Three ways to get better, fast.</h2>
+            </div>
+            <div class="how-it-works-grid">
+                <div class="hiw-card">
+                    <div class="hiw-icon">🔍</div>
+                    <div class="hiw-step">01</div>
+                    <h3>Analyze any position</h3>
+                    <p>Drag pieces onto the board or load a PGN file. The engine evaluates every move in real time and highlights threats you might have missed.</p>
+                </div>
+                <div class="hiw-connector">→</div>
+                <div class="hiw-card hiw-card--mid">
+                    <div class="hiw-icon">🤖</div>
+                    <div class="hiw-step">02</div>
+                    <h3>Ask your AI coach</h3>
+                    <p>Type any question — "Is Nd5 good here?", "Why did I lose material?" — and get a Socratic answer grounded in the exact board position.</p>
+                </div>
+                <div class="hiw-connector">→</div>
+                <div class="hiw-card">
+                    <div class="hiw-icon">⚔️</div>
+                    <div class="hiw-step">03</div>
+                    <h3>Play & improve</h3>
+                    <p>Switch to Play AI mode and challenge Stockfish at any ELO. Auto-hints fire after every opponent move so you always know your best plan.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── FEATURES ──────────────────────────────────────────── -->
+        <section class="home-section">
+            <div class="home-section-header">
+                <div class="section-badge">Features</div>
+                <h2 class="section-title">Everything a chess student needs.</h2>
+            </div>
+            <div class="features-bento">
+
+                <div class="bento-card bento-large">
+                    <div class="bento-icon-bg">♟</div>
+                    <div class="bento-content">
+                        <h3>AI Coach Chat</h3>
+                        <p>Ask anything about the position in plain English. The coach explains tactics, plans, and mistakes using only the actual pieces on the board — no hallucinations, no guesswork.</p>
+                        <div class="bento-chat-preview">
+                            <div class="bcp-msg bcp-user">Is Nxd5 a good move here?</div>
+                            <div class="bcp-msg bcp-bot">The knight captures on d5, winning a pawn. However, Black's bishop on c8 can immediately recapture — so ask yourself: can you keep that knight safe after Be6?</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bento-card bento-tall">
+                    <div class="bento-icon-bg">📊</div>
+                    <div class="bento-content">
+                        <h3>Live Eval Bar</h3>
+                        <p>See the position advantage shift in real time as you move pieces. White on top, black on bottom — instantly know who's winning.</p>
+                        <div class="bento-eval-demo">
+                            <div class="bed-label">White</div>
+                            <div class="bed-bar"><div class="bed-fill" style="height:70%"></div></div>
+                            <div class="bed-label">Black</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bento-card bento-wide">
+                    <div class="bento-icon-bg">🎯</div>
+                    <div class="bento-content">
+                        <h3>8 ELO Difficulty Levels</h3>
+                        <p>From 200 ELO Beginner all the way to 2800 GM+ — pick your challenge.</p>
+                        <div class="bento-elo-row">
+                            <span class="belo">200</span><span class="belo">400</span><span class="belo">800</span>
+                            <span class="belo belo-active">1200</span><span class="belo">1600</span>
+                            <span class="belo">2000</span><span class="belo">2400</span><span class="belo">2800+</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bento-card">
+                    <div class="bento-icon-bg">💾</div>
+                    <div class="bento-content">
+                        <h3>Save & Resume</h3>
+                        <p>Save any game to your personal library and reopen it with a board preview whenever you want to continue.</p>
+                    </div>
+                </div>
+
+                <div class="bento-card">
+                    <div class="bento-icon-bg">📂</div>
+                    <div class="bento-content">
+                        <h3>PGN Import</h3>
+                        <p>Drag &amp; drop any .pgn file or paste notation to load and replay famous games or your own club games.</p>
+                    </div>
+                </div>
+
+                <div class="bento-card">
+                    <div class="bento-icon-bg">💡</div>
+                    <div class="bento-content">
+                        <h3>Auto Hints</h3>
+                        <p>In Play AI mode, the coach whispers a practical tip after every opponent move — so you're never lost.</p>
+                    </div>
+                </div>
+
+                <div class="bento-card">
+                    <div class="bento-icon-bg">↩</div>
+                    <div class="bento-content">
+                        <h3>Takeback</h3>
+                        <p>Made a mistake? Take it back and try a different line. Learning from mistakes is the fastest path to improvement.</p>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ── CTA ───────────────────────────────────────────────── -->
+        <section class="home-cta">
+            <div class="home-cta-inner">
+                <div class="cta-chess-decoration" aria-hidden="true">♛</div>
+                <h2>Ready to play your best chess?</h2>
+                <p>Open the board and start analyzing, or jump straight into a game against the AI.</p>
+                <div class="home-hero-actions">
+                    <a href="/play" class="hero-btn primary">Launch Chessmate</a>
+                    <a href="/saved_games" class="hero-btn secondary">View Saved Games</a>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── FOOTER ────────────────────────────────────────────── -->
         <footer class="home-footer">
             <div>Built for chess students, clubs, and anyone who wants to learn from every position.</div>
             <div class="footer-links">
@@ -56,18 +226,15 @@
                 <a href="/play">Open Chessmate</a>
             </div>
         </footer>
-    </div>
+
+    </div><!-- /.home-shell -->
+
     <script>
         (function() {
             const header = document.querySelector('.site-header');
             if (!header) return;
-            const threshold = 80;
             const updateHeader = () => {
-                if (window.scrollY > threshold) {
-                    header.classList.add('compact');
-                } else {
-                    header.classList.remove('compact');
-                }
+                header.classList.toggle('compact', window.scrollY > 80);
             };
             window.addEventListener('scroll', updateHeader, { passive: true });
             updateHeader();
