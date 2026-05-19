@@ -867,92 +867,67 @@ STRICT RULES — NEVER BREAK THESE:
 @app.route('/best_move', methods=['POST'])
 def best_move():
     data = request.json
-    current_fen = data.get("fen")
-    history = data.get("history", [])
-    move_number = (len(history) // 2) + 1
-    temp_board = chess.Board(current_fen) if current_fen else chess.Board()
+    history = data.get("history", []) # List of SAN moves
+    
+    # 1. REBUILD BOARD FROM SAN HISTORY (Single Source of Truth)
+    temp_board = chess.Board()
+    for san in history:
+        try:
+            temp_board.push_san(san)
+        except Exception as e:
+            print(f"History replay error: {e}")
+            continue
 
     if temp_board.is_game_over():
         return jsonify({"status": "error", "message": "The game is already over!"})
 
-    material_status = get_material_score(temp_board)
-    tactical_facts  = get_tactical_facts(temp_board)
-
+    # 2. RUN ENGINE
     try:
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
-            info = engine.analyse(temp_board, chess.engine.Limit(time=1.5))
-            best_move_obj = info["pv"][0]
+            # Increase time slightly to ensure a quality move
+            result = engine.play(temp_board, chess.engine.Limit(time=1.0))
+            best_move_obj = result.move
             san_move = temp_board.san(best_move_obj)
-            is_capture = temp_board.is_capture(best_move_obj)
-            captured_piece_name = None
-            captured_square = None
-            if is_capture:
-                captured_piece = temp_board.piece_at(best_move_obj.to_square)
-                if captured_piece:
-                    captured_piece_name = chess.piece_name(captured_piece.piece_type).capitalize()
-                    captured_square = chess.square_name(best_move_obj.to_square)
+            
+            # Analyze the continuation for the prompt
+            info = engine.analyse(temp_board, chess.engine.Limit(time=0.5), multipv=1)
+            pv = info.get("pv", [best_move_obj])
+            
+            # Helper for accurate continuation string
+            test_b = temp_board.copy()
             pv_san = []
-            test_board = temp_board.copy()
-            for m in info["pv"][:4]:
-                turn_label = "White" if test_board.turn == chess.WHITE else "Black"
-                # Annotate captures with exact piece name so GPT cannot guess wrong
-                if test_board.is_capture(m):
-                    captured = test_board.piece_at(m.to_square)
-                    if captured:
-                        cap_name = chess.piece_name(captured.piece_type).capitalize()
-                        cap_sq   = chess.square_name(m.to_square)
-                        pv_san.append(f"{turn_label} plays {test_board.san(m)} (capturing the {cap_name} on {cap_sq})")
-                    else:
-                        pv_san.append(f"{turn_label} plays {test_board.san(m)}")
-                else:
-                    pv_san.append(f"{turn_label} plays {test_board.san(m)}")
-                test_board.push(m)
+            for m in pv[:4]:
+                label = "White" if test_b.turn == chess.WHITE else "Black"
+                pv_san.append(f"{label} plays {test_b.san(m)}")
+                test_b.push(m)
             expected_line_list = "\n".join([f"- {m}" for m in pv_san])
-            moving_piece = temp_board.piece_at(best_move_obj.from_square)
-            moving_piece_name = chess.piece_name(moving_piece.piece_type).capitalize() if moving_piece else "Piece"
 
-        tactical_facts = get_tactical_facts(temp_board)
+        # 3. GATHER DATA FOR LLM
+        material_status = get_material_score(temp_board)
+        tactical_facts  = get_tactical_facts(temp_board)
         piece_positions = get_piece_positions(temp_board)
-        current_history = "; ".join(history) if history else "Start position"
-        move_type = "capture" if is_capture else ("castling" if best_move_obj.is_castling() else "quiet")
-
+        
         prompt = f"""
+            You are a chess coach explaining why {san_move} is the best move.
+            
             DATA:
-            - Move Number: {move_number}
             - Recommended Move: {san_move}
-            - Move Type: {move_type}
-            - Captures Piece: {'Yes' if is_capture else 'No'}
-            - Captured Piece: {captured_piece_name or 'None'}
-            - Captured Square: {captured_square or 'N/A'}
-            - Piece Moving: {moving_piece_name}
+            - Current Turn: {'White' if temp_board.turn == chess.WHITE else 'Black'}
             - Material Status: {material_status}
-            - Tactical Facts (Ground Truth): {tactical_facts}
-            - Engine's Expected Continuation: {expected_line_list}
-            - Current Game History: {current_history}
-            - Current Board FEN: {temp_board.fen()}
-            - CURRENT PIECE LOCATIONS (authoritative — use ONLY these to identify what is on each square, never infer from move history): {piece_positions}
+            - Tactical Context: {tactical_facts}
+            - Engine's Expected Line: {expected_line_list}
+            - PIECE LOCATIONS (Authoritative): {piece_positions}
 
             TASK:
-
-            - Move Number: {move_number}
-            - Recommended Move: {san_move}
-            - Piece Moving: {moving_piece_name}
-            - Material Status: {material_status}
-            - Tactical Facts (Ground Truth): {tactical_facts}
-            - Engine's Expected Continuation: {expected_line_list}
-            - Current Board FEN: {temp_board.fen()}
-            - CURRENT PIECE LOCATIONS (authoritative — use ONLY these to identify what is on each square, never infer from move history): {piece_positions}
-
-            TASK:
-            Explain exactly WHY {san_move} is the best move.
+            Explain exactly WHY {san_move} is the best move in 1-3 sentences.
             
             STRICT RULES:
-            1. **The "Copy-Paste" Rule:** When mentioning the opponent's best response, YOU MUST copy the move EXACTLY as it appears in the 'Engine's Expected Continuation'. If the data says "Black plays Ke6", YOU MUST NOT say "Black plays Be6" or "Black blocks with the bishop." 
-            2. **Coordinate Lockdown:** Do not mention any square (like e7 or d5) unless it is explicitly mentioned in the 'Tactical Facts' or 'Expected Continuation'. 
-            3. **Piece Identity:** Before naming any piece on any square, look it up in CURRENT PIECE LOCATIONS. Never call a Bishop a Rook. Never infer piece identity from move history.
-            4. **The "Best Reply" Rule:** Use phrases like "The best response is [EXACT MOVE FROM DATA], but you still maintain the initiative."
-            5. Tone: Practical, blunt, and instructive. Max 3 sentences.
+            1. Use the move notation exactly as provided in the Engine's Expected Line.
+            2. Only reference squares and pieces found in the PIECE LOCATIONS list.
+            3. Do not mention move numbers or engine evaluations.
+            4. Be blunt and practical. No filler.
             """
+
         response = client.chat.completions.create(
             model=DEFAULT_CHAT_MODEL,
             messages=[
@@ -961,6 +936,7 @@ def best_move():
             ],
             temperature=0.3
         )
+        
         return jsonify({
             "status": "success",
             "move": san_move,
@@ -970,7 +946,7 @@ def best_move():
         })
     except Exception as e:
         print(f"!!! BEST MOVE ERROR: {str(e)}")
-        return jsonify({"status": "error", "message": "Failed to suggest a move."})
+        return jsonify({"status": "error", "message": "Engine failed to calculate."})
 
 
 @app.route('/sync_position', methods=['POST'])

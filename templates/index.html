@@ -1,13 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Chessmate AI</title>
+    <title>Chessmate AI — Play</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="https://unpkg.com/lenis@1.1.14/dist/lenis.min.js"></script>
 </head>
 <body>
     <header class="site-header">
@@ -16,16 +18,29 @@
             <div class="logo-mark">♟</div>
         </div>
         <nav class="site-nav">
-            <a href="/play" class="nav-link active">Play</a>
-            <a href="/saved_games" class="nav-link">Saved Games</a>
-            <a href="/howto" class="nav-link">How to Play</a>
             <a href="/" class="nav-link">Home</a>
+            <a href="/play" class="nav-link nav-guard active">Play</a>
+            <a href="/howto" class="nav-link nav-guard">How to Play</a>
+            <a href="/saved_games" class="nav-link nav-guard">Saved Games</a>
         </nav>
     </header>
+
+    <!-- ── NAVIGATION WARNING MODAL ─────────────────────────── -->
+    <div id="nav-warning-overlay" class="nav-warning-overlay">
+        <div class="nav-warning-box">
+            <h3>Unsaved Moves</h3>
+            <p>You have moves on the analysis board that haven't been saved. Would you like to save before leaving?</p>
+            <div class="nav-warning-actions">
+                <button class="action-btn primary" id="nav-warn-save-btn">Save &amp; Continue</button>
+                <button class="action-btn secondary" id="nav-warn-leave-btn">Leave Without Saving</button>
+                <button class="action-btn danger" id="nav-warn-cancel-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <div class="main-container">
+        <!-- ── BOARD SIDE ──────────────────────────────────────── -->
         <div id="board-side">
-            <h2 style="color: white; text-align: center; margin-top: 0; font-family: sans-serif;">Chessmate AI</h2>
-            
             <div class="board-eval-wrapper" style="position: relative;">
                 <div id="eval-bar-container">
                     <div id="eval-bar"></div>
@@ -35,13 +50,13 @@
                 <div id="game-over-overlay">
                     <h2 id="end-title">Checkmate!</h2>
                     <p id="end-subtitle">White Wins</p>
-                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;justify-content:center;">
                         <button class="action-btn secondary" onclick="$('#game-over-overlay').hide()">Review Board</button>
                         <button class="action-btn primary" onclick="requestGameSummary()">Game Summary</button>
                         <button class="action-btn danger" onclick="resetGame()">Play Again</button>
                     </div>
                 </div>
-                
+
                 <div id="promotion-overlay">
                     <div class="promotion-menu">
                         <div class="promo-piece" onclick="choosePromotion('q')">♕</div>
@@ -50,208 +65,262 @@
                         <div class="promo-piece" onclick="choosePromotion('n')">♘</div>
                     </div>
                 </div>
+            </div>
 
-                </div>
-            
+            <!-- Primary actions -->
             <div class="board-actions action-ribbon">
                 <button class="action-btn primary" id="explain-btn">Explain Move</button>
                 <button class="action-btn secondary" id="suggest-btn">Best Move?</button>
-                <button class="action-btn danger" id="reset-game-btn" onclick="resetGame()">Reset Game</button>
+                <button class="action-btn danger" id="reset-game-btn" onclick="resetGame()">Reset</button>
             </div>
-            <div class="board-actions nav-actions" style="margin-top: 8px;">
-                <button class="action-btn secondary" onclick="stepBackward()">← Previous</button>
-                <button class="action-btn secondary" onclick="jumpToLatest()">Latest ↻</button>
+
+            <!-- Navigation arrows -->
+            <div class="board-actions nav-actions" style="margin-top:8px;">
+                <button class="action-btn secondary" onclick="stepBackward()">← Prev</button>
+                <button class="action-btn secondary" onclick="jumpToLatest()">↻ Latest</button>
                 <button class="action-btn secondary" onclick="stepForward()">Next →</button>
             </div>
-            <div class="board-actions" id="pgn-actions" style="margin-top: 8px;">
-                <button class="action-btn pgn-btn" id="copy-pgn-btn" onclick="copyPGN()">📋 Copy PGN</button>
-                <button class="action-btn pgn-btn" id="share-btn" onclick="shareGame()">🔗 Share Game</button>
-                <button class="action-btn pgn-btn" id="save-game-btn" onclick="openSaveModal(false)">💾 Save Game</button>
+
+            <!-- PGN / Save / Share -->
+            <div class="board-actions" id="pgn-actions" style="margin-top:8px;">
+                <button class="action-btn pgn-btn" onclick="copyPGN()">📋 Copy PGN</button>
+                <button class="action-btn pgn-btn" onclick="shareGame()">🔗 Share</button>
+                <button class="action-btn pgn-btn" onclick="openSaveModal(false)">💾 Save</button>
             </div>
 
-            <!-- Takeback row — Play AI mode only, shown when game is in progress -->
-            <div class="board-actions" id="takeback-row" style="margin-top: 8px; display: none;">
-                <button class="action-btn takeback-btn" id="takeback-btn" onclick="takeback()">↩ Takeback</button>
+            <!-- Takeback — Play AI only -->
+            <div class="board-actions" id="takeback-row" style="margin-top:8px;display:none;">
+                <button class="action-btn takeback-btn" onclick="takeback()">↩ Takeback</button>
             </div>
 
-            <!-- Toast Notification -->
+            <!-- Toast -->
             <div id="toast" style="
-                display: none;
-                position: fixed;
-                bottom: 30px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: #27ae60;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 8px;
-                font-weight: bold;
-                font-size: 0.9rem;
-                z-index: 9999;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                transition: opacity 0.4s ease;
-            ">✅ Copied to clipboard!</div>
+                display:none;position:fixed;bottom:30px;left:50%;transform:translateX(-50%);
+                background:#27ae60;color:white;padding:12px 24px;border-radius:8px;
+                font-weight:bold;font-size:0.9rem;z-index:9999;
+                box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.4s ease;">
+            </div>
         </div>
 
+        <!-- ── SIDEBAR ─────────────────────────────────────────── -->
         <div id="sidebar">
-            <div class="app-nav">
-                <a class="nav-link active" href="/play">Chessmate</a>
-                <a class="nav-link" href="/saved_games">Saved Games</a>
-                <a class="nav-link" href="/howto">How to Play</a>
-            </div>
+
+            <!-- Mode toggle -->
             <div class="mode-toggle">
                 <button class="mode-btn active" onclick="setMode('analysis', this)">Analysis</button>
                 <button class="mode-btn" onclick="setMode('play', this)">Play AI</button>
             </div>
+
+            <!-- Coach hint toggle -->
             <div class="hint-control-row">
                 <button id="hint-mode-btn" class="action-btn hint-mode-btn active" onclick="toggleAutoHint()">Coach Hints: On</button>
-                <span class="hint-help-text">In Play AI, the coach gives a short hint after each opponent move.</span>
+                <span class="hint-help-text">Auto-hints fire after each opponent move in Play AI mode.</span>
             </div>
 
-            <div id="elo-panel" style="display: none;">
-                <p style="color: #64748b; font-size: 0.8rem; margin-bottom: 8px; font-weight: bold;">SELECT DIFFICULTY:</p>
+            <!-- ELO / Color / Start (Play AI) -->
+            <div id="elo-panel" style="display:none;">
+                <p>Select Difficulty:</p>
                 <div class="elo-grid">
-                    <button class="elo-btn active" onclick="setElo(200, this)"><span class="elo-label">Beginner</span><span class="elo-num">200</span></button>
-                    <button class="elo-btn" onclick="setElo(400, this)"><span class="elo-label">Casual</span><span class="elo-num">400</span></button>
-                    <button class="elo-btn" onclick="setElo(800, this)"><span class="elo-label">Amateur</span><span class="elo-num">800</span></button>
-                    <button class="elo-btn" onclick="setElo(1200, this)"><span class="elo-label">Club</span><span class="elo-num">1200</span></button>
-                    <button class="elo-btn" onclick="setElo(1600, this)"><span class="elo-label">Advanced</span><span class="elo-num">1600</span></button>
-                    <button class="elo-btn" onclick="setElo(2000, this)"><span class="elo-label">Expert</span><span class="elo-num">2000</span></button>
-                    <button class="elo-btn" onclick="setElo(2400, this)"><span class="elo-label">Master</span><span class="elo-num">2400</span></button>
-                    <button class="elo-btn" onclick="setElo(2800, this)"><span class="elo-label">GM+</span><span class="elo-num">2800+</span></button>
+                    <button class="elo-btn active" onclick="setElo(200,this)"><span class="elo-label">Beginner</span><span class="elo-num">200</span></button>
+                    <button class="elo-btn" onclick="setElo(400,this)"><span class="elo-label">Casual</span><span class="elo-num">400</span></button>
+                    <button class="elo-btn" onclick="setElo(800,this)"><span class="elo-label">Amateur</span><span class="elo-num">800</span></button>
+                    <button class="elo-btn" onclick="setElo(1200,this)"><span class="elo-label">Club</span><span class="elo-num">1200</span></button>
+                    <button class="elo-btn" onclick="setElo(1600,this)"><span class="elo-label">Advanced</span><span class="elo-num">1600</span></button>
+                    <button class="elo-btn" onclick="setElo(2000,this)"><span class="elo-label">Expert</span><span class="elo-num">2000</span></button>
+                    <button class="elo-btn" onclick="setElo(2400,this)"><span class="elo-label">Master</span><span class="elo-num">2400</span></button>
+                    <button class="elo-btn" onclick="setElo(2800,this)"><span class="elo-label">GM+</span><span class="elo-num">2800+</span></button>
                 </div>
-                <p style="color: #64748b; font-size: 0.8rem; margin: 10px 0 8px; font-weight: bold;">PLAY AS:</p>
+                <p style="margin-top:10px;">Play as:</p>
                 <div class="color-grid">
-                    <button class="color-btn active" id="color-white" onclick="setColor('white', this)">♔ White</button>
-                    <button class="color-btn" id="color-black" onclick="setColor('black', this)">♚ Black</button>
-                    <button class="color-btn" id="color-random" onclick="setColor('random', this)">🎲 Random</button>
+                    <button class="color-btn active" id="color-white" onclick="setColor('white',this)">♔ White</button>
+                    <button class="color-btn" id="color-black" onclick="setColor('black',this)">♚ Black</button>
+                    <button class="color-btn" id="color-random" onclick="setColor('random',this)">🎲 Random</button>
                 </div>
-                <button id="start-resign-btn" class="start-game-btn" onclick="handleStartResign()">
-                    ▶ Start Game
-                </button>
+                <button id="start-resign-btn" class="start-game-btn" onclick="handleStartResign()">▶ Start Game</button>
             </div>
 
-            <!-- PGN Upload Button — Analysis mode only -->
-            <button id="pgn-upload-btn" onclick="openPGNModal()" class="pgn-upload-trigger-btn">
-                📂 Load a Game (PGN)
-            </button>
+            <!-- PGN Upload — Analysis only -->
+            <button id="pgn-upload-btn" onclick="openPGNModal()">📂 Load a Game (PGN)</button>
 
-            <!-- Flip Board Button — Analysis mode only -->
-            <button id="flip-btn" onclick="toggleFlip()" class="sidebar-control-btn">
-                🔄 Flip Board
-            </button>
+            <!-- Flip board — Analysis only -->
+            <button id="flip-btn" onclick="toggleFlip()">🔄 Flip Board</button>
             <span id="orientation-label" class="orientation-label" style="display:none;">Playing as White</span>
 
-            <!-- PGN Upload Modal Overlay -->
-            <div id="pgn-modal-overlay" onclick="closePGNModal(event)">
-                <div class="pgn-modal-box">
-                    <div class="pgn-modal-header">
-                        <span>📂 Load a Game (PGN)</span>
-                        <button class="pgn-modal-close" onclick="closePGNModalDirect()">✕</button>
-                    </div>
-                    <div class="pgn-modal-body">
-                        <div class="pgn-drop-zone" id="pgn-drop-zone">
-                            <span id="pgn-drop-label">🗂 Drag & drop a .pgn file here</span>
-                        </div>
-                        <div class="pgn-modal-or">— or —</div>
-                        <label class="pgn-browse-big-btn" for="pgn-file-input">
-                            📁 Browse Files
-                        </label>
-                        <input type="file" id="pgn-file-input" accept=".pgn" style="display:none;">
-                        <div class="pgn-modal-or">— or paste PGN text —</div>
-                        <textarea id="pgn-text-input" placeholder='e.g. 1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 d5...' rows="4"></textarea>
-                        <button class="pgn-load-btn" onclick="loadPGNFromInput()">Load Game ▶</button>
-                    </div>
-                </div>
-            </div>
-
-            <div id="save-warning-overlay" class="save-warning-overlay" onclick="closeSaveWarningModal(event)">
-                <div class="save-warning-box">
-                    <h3>Unsaved Analysis</h3>
-                    <p>You have analysis moves on the board. Would you like to save them before switching to Play AI?</p>
-                    <div class="save-warning-actions">
-                        <button class="action-btn primary" onclick="saveAndGoToSavedGames(event)">Save & View Saved Games</button>
-                        <button class="action-btn secondary" onclick="continueToPlay(event)">Continue Without Saving</button>
-                        <button class="action-btn danger" onclick="closeSaveWarningModal(event)">Cancel</button>
-                    </div>
-                </div>
-            </div>
-
-            <div id="save-modal-overlay" class="save-modal-overlay" onclick="closeSaveModal(event)">
-                <div class="save-modal-box">
-                    <div class="save-modal-header">
-                        <span>Save Your Game</span>
-                        <button class="save-modal-close" onclick="closeSaveModal(event)">✕</button>
-                    </div>
-                    <div class="save-modal-body">
-                        <label class="save-label">Title
-                            <input type="text" id="save-title-input" placeholder="My Chessmate Game">
-                        </label>
-                        <label class="save-label">Note
-                            <textarea id="save-note-input" placeholder="Add a short note (optional)" rows="3"></textarea>
-                        </label>
-                        <div class="save-modal-actions">
-                            <button class="action-btn primary" onclick="confirmSaveCurrentGame()">Save Game</button>
-                            <button class="action-btn secondary" onclick="closeSaveModal(event)">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
+            <!-- Move history -->
             <div class="move-history-wrapper">
                 <div class="move-history-header">📜 Move History</div>
-                <div id="move-list" class="move-grid">
-                    </div>
+                <div id="move-list" class="move-grid"></div>
             </div>
+
+            <!-- Chat -->
             <div class="chat-wrapper">
                 <div class="chat-header">🤖 AI Coach Chat</div>
                 <div id="chat-history">
-                    <div class="msg bot">Hello! Ready to analyze?</div>
+                    <div class="msg bot" style="padding:10px;border-radius:8px;margin-bottom:8px;font-size:0.9rem;background:#f1f5f9;color:#334155;">
+                        Hello! I'm your chess coach. Make a move, ask me anything, or load a PGN to get started.
+                    </div>
                 </div>
                 <div class="chat-input-area">
-                    <input type="text" id="coach-input" placeholder="Ask coach anything... e.g. 'Is Rd8 good here?'">
+                    <input type="text" id="coach-input" placeholder="Ask anything — e.g. 'Is Rd8 good here?'">
                     <button class="send-btn" id="coach-send-btn">Send</button>
+                </div>
+            </div>
+        </div><!-- /#sidebar -->
+    </div><!-- /.main-container -->
+
+    <!-- ── PGN MODAL ──────────────────────────────────────────── -->
+    <div id="pgn-modal-overlay" onclick="closePGNModal(event)">
+        <div class="pgn-modal-box">
+            <div class="pgn-modal-header">
+                <span>📂 Load a Game (PGN)</span>
+                <button class="pgn-modal-close" onclick="closePGNModalDirect()">✕</button>
+            </div>
+            <div class="pgn-modal-body">
+                <div class="pgn-drop-zone" id="pgn-drop-zone">
+                    <span id="pgn-drop-label">🗂 Drag &amp; drop a .pgn file here</span>
+                </div>
+                <div class="pgn-modal-or">— or —</div>
+                <label class="pgn-browse-big-btn" for="pgn-file-input">📁 Browse Files</label>
+                <input type="file" id="pgn-file-input" accept=".pgn" style="display:none;">
+                <div class="pgn-modal-or">— or paste PGN text —</div>
+                <textarea id="pgn-text-input" placeholder="e.g. 1. e4 e5 2. Nf3 Nc6 3. Bc4..." rows="4"></textarea>
+                <button class="pgn-load-btn" onclick="loadPGNFromInput()">Load Game ▶</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── MODE SWITCH WARNING MODAL (analysis → play) ────────── -->
+    <div id="save-warning-overlay" class="save-warning-overlay" onclick="closeSaveWarningModal(event)">
+        <div class="save-warning-box">
+            <h3>Unsaved Analysis</h3>
+            <p>You have analysis moves on the board. Would you like to save them before switching to Play AI?</p>
+            <div class="save-warning-actions">
+                <button class="action-btn primary" onclick="saveAndGoToSavedGames(event)">Save &amp; View Saved Games</button>
+                <button class="action-btn secondary" onclick="continueToPlay(event)">Continue Without Saving</button>
+                <button class="action-btn danger" onclick="closeSaveWarningModal(event)">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── SAVE MODAL ─────────────────────────────────────────── -->
+    <div id="save-modal-overlay" class="save-modal-overlay" onclick="closeSaveModal(event)">
+        <div class="save-modal-box">
+            <div class="save-modal-header">
+                <span>💾 Save Your Game</span>
+                <button class="save-modal-close" onclick="closeSaveModal(event)">✕</button>
+            </div>
+            <div class="save-modal-body">
+                <label class="save-label">Title
+                    <input type="text" id="save-title-input" placeholder="My Chessmate Game">
+                </label>
+                <label class="save-label">Note (optional)
+                    <textarea id="save-note-input" placeholder="Add a short note..." rows="3"></textarea>
+                </label>
+                <div class="save-modal-actions">
+                    <button class="action-btn primary" onclick="confirmSaveCurrentGame()">Save Game</button>
+                    <button class="action-btn secondary" onclick="closeSaveModal(event)">Cancel</button>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- ── FOOTER ─────────────────────────────────────────────── -->
+    <footer class="site-footer" style="margin-top:24px;">
+        <div class="site-footer-inner">
+            <div class="site-footer-brand"><span>♟</span> Chessmate AI</div>
+            <nav class="site-footer-links">
+                <a href="/" class="nav-guard">Home</a>
+                <a href="/howto" class="nav-guard">How to Play</a>
+                <a href="/saved_games" class="nav-guard">Saved Games</a>
+            </nav>
+        </div>
+        <p class="site-footer-copy">Built for chess students, clubs, and anyone who wants to learn from every position.</p>
+    </footer>
+
     <script>
+        /* ═══════════════════════════════════════════════════════
+           STATE
+           ═══════════════════════════════════════════════════════ */
         var board = null;
-        var game = new Chess();
-        var currentGameMode = 'analysis'; 
-        let currentElo = 200;
-        let playerColor = 'white'; // 'white', 'black', or 'random'
-        let currentPlayerColor = 'white'; // Resolved player color when a new Play AI game starts
-        let lastKnownEval = 0;     // tracks current eval for chat context
-        let gameInProgress = false;      // true once Start Game is clicked
-        let resignConfirmPending = false; // true after first resign click
-        let boardLocked = true;           // true until Start Game is pressed in Play AI mode
-        let coachChatLog = [];            // last N exchanges for Socratic follow-up context
+        var game  = new Chess();
+        var currentGameMode    = 'analysis';
+        var currentElo         = 200;
+        var playerColor        = 'white';
+        var currentPlayerColor = 'white';
+        var lastKnownEval      = 0;
+        var gameInProgress     = false;
+        var resignConfirmPending = false;
+        var boardLocked        = true;
+        var coachChatLog       = [];
+        var moveHistoryFens    = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
+        var currentMoveIndex   = 0;
+        var pendingModeElement = null;
+        var autoHintMode       = true;
+        var pendingMove        = null;
+        var pgnLoadComplete    = true;
 
-        let moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1']; // The starting FEN
-        let currentMoveIndex = 0;
-        let pendingModeElement = null;
-        let autoHintMode = true;
+        /* ═══════════════════════════════════════════════════════
+           NAVIGATION GUARD — warn before leaving with unsaved moves
+           ═══════════════════════════════════════════════════════ */
+        var _pendingNavHref = null;
 
-        // 1. Initialize the board configuration
-        var config = {
-            draggable: true,      // Allows you to drag pieces
-            position: 'start',    // Sets the board to the starting position
-            onDrop: onDrop,       // Links to your existing move logic
-            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' 
-            // ^ This uses the default online images so you don't have to worry about local paths yet
-        };
-
-        board = Chessboard('myBoard', config);
-        const initialModeButton = document.querySelector('.mode-btn.active');
-        if (initialModeButton) {
-            setMode('analysis', initialModeButton);
+        function hasUnsavedMoves() {
+            return currentGameMode === 'analysis' && moveHistoryFens.length > 1;
         }
 
+        // Intercept all .nav-guard links
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.nav-guard').forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    if (!hasUnsavedMoves()) return; // allow navigation
+                    e.preventDefault();
+                    _pendingNavHref = link.getAttribute('href');
+                    openNavWarningModal();
+                });
+            });
+
+            // Nav warning buttons
+            document.getElementById('nav-warn-save-btn').addEventListener('click', function() {
+                closeNavWarningModal();
+                openSaveModal(true); // after save, will navigate
+            });
+            document.getElementById('nav-warn-leave-btn').addEventListener('click', function() {
+                closeNavWarningModal();
+                if (_pendingNavHref) window.location.href = _pendingNavHref;
+            });
+            document.getElementById('nav-warn-cancel-btn').addEventListener('click', function() {
+                closeNavWarningModal();
+                _pendingNavHref = null;
+            });
+        });
+
+        function openNavWarningModal() {
+            document.getElementById('nav-warning-overlay').style.display = 'flex';
+        }
+
+        function closeNavWarningModal() {
+            document.getElementById('nav-warning-overlay').style.display = 'none';
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           BOARD INIT
+           ═══════════════════════════════════════════════════════ */
+        var config = {
+            draggable: true,
+            position: 'start',
+            onDrop: onDrop,
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        };
+        board = Chessboard('myBoard', config);
+
+        const initialModeButton = document.querySelector('.mode-btn.active');
+        if (initialModeButton) setMode('analysis', initialModeButton);
+
+        /* ═══════════════════════════════════════════════════════
+           MODE SWITCHING
+           ═══════════════════════════════════════════════════════ */
         function setMode(mode, element) {
-            const previousMode = currentGameMode;
-            if (mode === 'play' && previousMode === 'analysis' && moveHistoryFens.length > 1) {
+            if (mode === 'play' && currentGameMode === 'analysis' && moveHistoryFens.length > 1) {
                 pendingModeElement = element;
                 openSaveWarningModal();
                 return;
@@ -264,51 +333,50 @@
             document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
             if (element) element.classList.add('active');
 
-            const evalContainer = document.getElementById('eval-bar-container');
-            const eloPanel = document.getElementById('elo-panel');
-            const pgnUploadBtn = document.getElementById('pgn-upload-btn');
-            const flipBtn = document.getElementById('flip-btn');
+            const evalContainer  = document.getElementById('eval-bar-container');
+            const eloPanel       = document.getElementById('elo-panel');
+            const pgnUploadBtn   = document.getElementById('pgn-upload-btn');
+            const flipBtn        = document.getElementById('flip-btn');
             const orientationLabel = document.getElementById('orientation-label');
-            const takebackRow = document.getElementById('takeback-row');
-            const resetBtn = document.getElementById('reset-game-btn');
-            const history = game.history();
+            const takebackRow    = document.getElementById('takeback-row');
+            const resetBtn       = document.getElementById('reset-game-btn');
 
             if (mode === 'play') {
-                evalContainer.style.display = 'none'; 
-                eloPanel.style.display = 'block';
-                pgnUploadBtn.style.display = 'none';
+                evalContainer.style.display   = 'none';
+                eloPanel.style.display        = 'block';
+                pgnUploadBtn.style.display    = 'none';
                 if (flipBtn) flipBtn.style.display = 'none';
                 if (orientationLabel) orientationLabel.style.display = 'none';
-                takebackRow.style.display = gameInProgress ? 'flex' : 'none';
-                resetBtn.style.display = 'none';
+                takebackRow.style.display     = gameInProgress ? 'flex' : 'none';
+                resetBtn.style.display        = 'none';
             } else {
-                evalContainer.style.display = 'block'; 
-                eloPanel.style.display = 'none';
-                pgnUploadBtn.style.display = 'block';
+                evalContainer.style.display   = 'block';
+                eloPanel.style.display        = 'none';
+                pgnUploadBtn.style.display    = 'block';
                 if (flipBtn) {
-                    flipBtn.style.display = 'inline-block';
-                    flipBtn.textContent = `🔄 Flip Board${getPlayingSideText()}`;
+                    flipBtn.style.display     = 'inline-block';
+                    flipBtn.textContent       = `🔄 Flip Board${getPlayingSideText()}`;
                 }
                 if (orientationLabel) {
                     orientationLabel.style.display = 'inline-block';
                     updateOrientationLabel();
                 }
-                takebackRow.style.display = history.length > 0 ? 'flex' : 'none';
-                resetBtn.style.display = 'inline-block';
+                const history = game.history();
+                takebackRow.style.display  = history.length > 0 ? 'flex' : 'none';
+                resetBtn.style.display     = 'inline-block';
             }
         }
 
+        /* ═══════════════════════════════════════════════════════
+           MODE SWITCH SAVE WARNING
+           ═══════════════════════════════════════════════════════ */
         function openSaveWarningModal() {
-            const overlay = document.getElementById('save-warning-overlay');
-            if (overlay) overlay.style.display = 'flex';
+            document.getElementById('save-warning-overlay').style.display = 'flex';
         }
 
         function closeSaveWarningModal(event) {
-            if (event && event.target !== event.currentTarget) {
-                return;
-            }
-            const overlay = document.getElementById('save-warning-overlay');
-            if (overlay) overlay.style.display = 'none';
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('save-warning-overlay').style.display = 'none';
             pendingModeElement = null;
         }
 
@@ -324,27 +392,28 @@
         function saveAndGoToSavedGames(event) {
             event.stopPropagation();
             closeSaveWarningModal(event);
-            openSaveModal(true);
+            openSaveModal(true); // redirect to saved games after save
         }
 
-        let saveRedirectAfter = false;
+        /* ═══════════════════════════════════════════════════════
+           SAVE MODAL
+           ═══════════════════════════════════════════════════════ */
+        var saveRedirectAfter = false;
+        var saveRedirectHref  = '/saved_games';
 
-        function openSaveModal(redirectToSaved = false) {
-            saveRedirectAfter = redirectToSaved;
-            const overlay = document.getElementById('save-modal-overlay');
+        function openSaveModal(redirectToSaved, hrefOverride) {
+            saveRedirectAfter = !!redirectToSaved;
+            saveRedirectHref  = hrefOverride || '/saved_games';
             const titleInput = document.getElementById('save-title-input');
-            const noteInput = document.getElementById('save-note-input');
+            const noteInput  = document.getElementById('save-note-input');
             if (titleInput) titleInput.value = 'My Chessmate Game';
-            if (noteInput) noteInput.value = '';
-            if (overlay) overlay.style.display = 'flex';
+            if (noteInput)  noteInput.value  = '';
+            document.getElementById('save-modal-overlay').style.display = 'flex';
         }
 
         function closeSaveModal(event) {
-            if (event && event.target !== event.currentTarget) {
-                return;
-            }
-            const overlay = document.getElementById('save-modal-overlay');
-            if (overlay) overlay.style.display = 'none';
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('save-modal-overlay').style.display = 'none';
         }
 
         async function confirmSaveCurrentGame() {
@@ -354,286 +423,178 @@
                 closeSaveModal();
                 return;
             }
-
             const titleInput = document.getElementById('save-title-input');
-            const noteInput = document.getElementById('save-note-input');
+            const noteInput  = document.getElementById('save-note-input');
             const title = titleInput && titleInput.value.trim() ? titleInput.value.trim() : 'Untitled Game';
-            const note = noteInput ? noteInput.value.trim() : '';
+            const note  = noteInput ? noteInput.value.trim() : '';
 
             const response = await fetch('/save_game', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: title,
-                    note: note,
-                    pgn: pgn,
-                    game_mode: currentGameMode,
-                    fen: game.fen()
-                })
-            }).then(res => res.json());
+                body: JSON.stringify({ title, note, pgn, game_mode: currentGameMode, fen: game.fen() })
+            }).then(r => r.json());
 
             if (response.status === 'success') {
                 showToast('✅ Game saved!');
                 closeSaveModal();
                 if (saveRedirectAfter) {
-                    window.location.href = '/saved_games';
+                    // small delay so toast is visible
+                    setTimeout(() => { window.location.href = saveRedirectHref; }, 800);
+                }
+                // Also handle nav-guard pending navigation
+                if (_pendingNavHref) {
+                    setTimeout(() => { window.location.href = _pendingNavHref; _pendingNavHref = null; }, 800);
                 }
             } else {
                 showToast('❌ Could not save game.', '#c0392b');
             }
         }
 
+        /* ═══════════════════════════════════════════════════════
+           ELO / COLOR
+           ═══════════════════════════════════════════════════════ */
         function setElo(elo, element) {
-            currentElo = elo; 
-            document.querySelectorAll('.elo-btn').forEach(btn => btn.classList.remove('active'));
+            currentElo = elo;
+            document.querySelectorAll('.elo-btn').forEach(b => b.classList.remove('active'));
             element.classList.add('active');
-        }
-
-        function updateTakebackVisibility() {
-            const takebackRow = document.getElementById('takeback-row');
-            if (!takebackRow) return;
-            if (currentGameMode === 'play') {
-                takebackRow.style.display = gameInProgress ? 'flex' : 'none';
-            } else {
-                takebackRow.style.display = game.history().length > 0 ? 'flex' : 'none';
-            }
         }
 
         function setColor(color, element) {
             playerColor = color;
-            document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
             element.classList.add('active');
-            // Mirror the visual board orientation to the selected player color when valid.
-            if (color === 'white' || color === 'black') {
-                board.orientation(color);
-            }
-
+            if (color === 'white' || color === 'black') board.orientation(color);
             if (currentGameMode === 'analysis') {
                 updateOrientationLabel();
                 const flipBtn = document.getElementById('flip-btn');
                 if (flipBtn) flipBtn.textContent = `🔄 Flip Board${getPlayingSideText()}`;
             }
-            // Don't auto-start — wait for the Start Game button
         }
 
-        function requestGameSummary() {
-            // 1. Hide the overlay so the user can see the chat
-            $('#game-over-overlay').hide();
-            
-            // 2. Add the user prompt to the chat
-            appendChatMessage("user", "Can you give me a summary of that game?");
-            
-            // 3. Show the loading state
-            const chatHistory = document.getElementById('chat-history');
-            const loadingDiv = document.createElement('div');
-            loadingDiv.id = "coach-loading"; 
-            loadingDiv.className = "msg bot";
-            loadingDiv.innerHTML = "<em>Analyzing the full game PGN...</em>";
-            chatHistory.appendChild(loadingDiv);
-            chatHistory.scrollTop = chatHistory.scrollHeight;
-
-            // 4. Fetch the full PGN and send it to the new backend route
-            const gamePgn = game.pgn();
-
-            fetch("/game_summary", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                    pgn: gamePgn,
-                    bot_elo: currentElo // Passing the Elo gives the Coach context on the difficulty
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                const loader = document.getElementById('coach-loading');
-                if (loader) loader.remove();
-
-                if (data.status === "success") {
-                    appendChatMessage("bot", data.summary, true); // True triggers your typewriter effect
-                } else {
-                    appendChatMessage("bot", "Oops: " + data.message, true);
-                }
-            })
-            .catch(err => {
-                const loader = document.getElementById('coach-loading');
-                if (loader) loader.remove();
-                appendChatMessage("bot", "My connection dropped while reviewing the game.", true);
-                console.error("Summary error:", err);
-            });
+        /* ═══════════════════════════════════════════════════════
+           TAKEBACK VISIBILITY
+           ═══════════════════════════════════════════════════════ */
+        function updateTakebackVisibility() {
+            const row = document.getElementById('takeback-row');
+            if (!row) return;
+            if (currentGameMode === 'play') {
+                row.style.display = gameInProgress ? 'flex' : 'none';
+            } else {
+                row.style.display = game.history().length > 0 ? 'flex' : 'none';
+            }
         }
 
+        /* ═══════════════════════════════════════════════════════
+           GAME OVER
+           ═══════════════════════════════════════════════════════ */
         function checkGameOver() {
-            if (game.game_over()) {
-                let title = "Game Over";
-                let subtitle = "";
-
-                if (game.in_checkmate()) {
-                    title = "Checkmate!";
-                    subtitle = game.turn() === 'w' ? "Black Wins" : "White Wins";
-                } else if (game.in_draw()) {
-                    title = "Draw";
-                    if (game.in_stalemate()) subtitle = "Stalemate";
-                    else if (game.in_threefold_repetition()) subtitle = "Threefold Repetition";
-                    else subtitle = "Insufficient Material";
-                }
-
-                $('#end-title').text(title);
-                $('#end-subtitle').text(subtitle);
-                $('#game-over-overlay').css('display', 'flex');
-
-                const summaryBtn = document.querySelector('#game-over-overlay .primary');
-                if (currentGameMode === 'play') {
-                    summaryBtn.style.display = 'inline-block';
-                } else {
-                    summaryBtn.style.display = 'none';
-                }
-
-                // Reset the Start/Resign button since game is over
-                gameInProgress = false;
-                boardLocked = true;
-                setStartResignBtn('start');
-                document.getElementById('takeback-row').style.display = 'none';
+            if (!game.game_over()) return;
+            let title = 'Game Over', subtitle = '';
+            if (game.in_checkmate()) {
+                title    = 'Checkmate!';
+                subtitle = game.turn() === 'w' ? 'Black Wins' : 'White Wins';
+            } else if (game.in_draw()) {
+                title    = 'Draw';
+                subtitle = game.in_stalemate() ? 'Stalemate' :
+                           game.in_threefold_repetition() ? 'Threefold Repetition' : 'Insufficient Material';
             }
+            $('#end-title').text(title);
+            $('#end-subtitle').text(subtitle);
+            $('#game-over-overlay').css('display', 'flex');
+
+            const summaryBtn = document.querySelector('#game-over-overlay .primary');
+            if (summaryBtn) summaryBtn.style.display = currentGameMode === 'play' ? 'inline-block' : 'none';
+
+            gameInProgress = false;
+            boardLocked    = true;
+            setStartResignBtn('start');
+            document.getElementById('takeback-row').style.display = 'none';
         }
 
+        /* ═══════════════════════════════════════════════════════
+           MOVE LIST
+           ═══════════════════════════════════════════════════════ */
         function updateMoveList() {
-            const moveListElement = document.getElementById('move-list');
+            const el = document.getElementById('move-list');
             const history = game.history();
-            let html = ''; // Start with an empty string
-
+            let html = '';
             for (let i = 0; i < history.length; i += 2) {
-                const turnNum = Math.floor(i / 2) + 1;
-                const whiteMove = history[i];
-                const blackMove = history[i + 1] ? history[i + 1] : '';
-
-                // We assign an index that matches our moveHistoryFens array
-                const whiteIndex = i + 1;
-                const blackIndex = i + 2;
-
-                html += `<div class="move-num">${turnNum}.</div>`;
-                html += `<div class="move-val" data-index="${whiteIndex}">${whiteMove}</div>`;
-                
-                if (blackMove) {
-                    html += `<div class="move-val" data-index="${blackIndex}">${blackMove}</div>`;
-                }
+                const turn     = Math.floor(i / 2) + 1;
+                const wMove    = history[i];
+                const bMove    = history[i + 1] || '';
+                const wIndex   = i + 1;
+                const bIndex   = i + 2;
+                html += `<div class="move-num">${turn}.</div>`;
+                html += `<div class="move-val" data-index="${wIndex}">${wMove}</div>`;
+                if (bMove) html += `<div class="move-val" data-index="${bIndex}">${bMove}</div>`;
             }
-
-            moveListElement.innerHTML = html;
-            // Auto-scroll to bottom only if we are at the latest move
+            el.innerHTML = html;
             if (currentMoveIndex === moveHistoryFens.length - 1) {
-                moveListElement.scrollTop = moveListElement.scrollHeight;
+                el.scrollTop = el.scrollHeight;
             }
-            
-            // Refresh highlight in case we just added a move
             highlightCurrentMove();
             updateTakebackVisibility();
         }
 
+        /* ═══════════════════════════════════════════════════════
+           DROP / MOVE
+           ═══════════════════════════════════════════════════════ */
         function onDrop(source, target) {
-            console.log(`[onDrop] source=${source}, target=${target}, mode=${currentGameMode}, pgnLoadComplete=${pgnLoadComplete}`);
-            
-            if (!pgnLoadComplete) {
-                console.log('[onDrop] BLOCKED: PGN still loading');
-                return 'snapback';
-            }
-
-            // Block all moves in Play AI mode until Start Game is pressed
-            if (currentGameMode === 'play' && boardLocked) {
-                console.log('[onDrop] BLOCKED: Play mode and board locked');
-                return 'snapback';
-            }
-
-            if (currentMoveIndex !== moveHistoryFens.length - 1) {
-                console.log(`[onDrop] BLOCKED: Not at latest move (${currentMoveIndex} vs ${moveHistoryFens.length - 1})`);
-                return 'snapback';
-            }
-
-            // In analysis mode, allow moves even if game is technically over
-            if (currentGameMode === 'play' && game.game_over()) {
-                console.log('[onDrop] BLOCKED: Game is over (Play mode)');
-                return 'snapback';
-            }
+            if (!pgnLoadComplete) return 'snapback';
+            if (currentGameMode === 'play' && boardLocked) return 'snapback';
+            if (currentMoveIndex !== moveHistoryFens.length - 1) return 'snapback';
+            if (currentGameMode === 'play' && game.game_over()) return 'snapback';
+            if (source === target) return;
 
             clearArrows();
 
-            if (source === target) {
-                console.log('[onDrop] BLOCKED: Same square');
-                return;
-            }
-
-            // Block dragging when it's the engine's turn
             const engineColor = (currentPlayerColor === 'white') ? 'b' : 'w';
-            if (currentGameMode === 'play' && game.turn() === engineColor) {
-                console.log('[onDrop] BLOCKED: Engine turn');
-                return 'snapback';
-            }
+            if (currentGameMode === 'play' && game.turn() === engineColor) return 'snapback';
 
             const piece = game.get(source);
             if (piece && piece.type === 'p' && (target[1] === '8' || target[1] === '1')) {
                 pendingMove = { from: source, to: target };
                 document.getElementById('promotion-overlay').style.display = 'flex';
-                return; 
+                return;
             }
-
             sendMoveToServer(source + target, source, target);
         }
 
         function sendMoveToServer(moveText, source, target) {
             clearArrows();
-            console.log(`[sendMoveToServer] Sending move: ${moveText}`);
-
-            fetch("/move", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
+            fetch('/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ move: moveText, fen: game.fen() })
             })
-            .then(res => res.json())
+            .then(r => r.json())
             .then(data => {
-                console.log('[sendMoveToServer] Response:', data);
-                if (data.status === "success") {
-                    board.position(data.fen); 
-                    
+                if (data.status === 'success') {
+                    board.position(data.fen);
                     const promoChar = moveText.length === 5 ? moveText[4] : 'q';
                     game.move({ from: source, to: target, promotion: promoChar });
-
                     moveHistoryFens.push(game.fen());
                     currentMoveIndex = moveHistoryFens.length - 1;
                     highlightCurrentMove();
-                    
                     updateMoveList();
                     updateCheckHighlight();
                     checkGameOver();
-
-                    // If user was in "Are you sure?" resign state, revert to plain Resign
                     if (resignConfirmPending) {
                         resignConfirmPending = false;
                         const btn = document.getElementById('start-resign-btn');
-                        if (btn) {
-                            btn.textContent = '🏳 Resign';
-                            btn.style.background = '';
-                        }
+                        if (btn) { btn.textContent = '🏳 Resign'; btn.style.background = ''; }
                     }
-
-                    if (currentGameMode === 'analysis') {
-                        updateEvalBar(data.evaluation);
-                    }
-
+                    if (currentGameMode === 'analysis') updateEvalBar(data.evaluation);
                     if (currentGameMode === 'play') {
-                        // Trigger engine if it's now the engine's turn
                         const engineColor = (currentPlayerColor === 'white') ? 'b' : 'w';
-                        if (game.turn() === engineColor) {
-                            setTimeout(makeEngineMove, 250);
-                        }
+                        if (game.turn() === engineColor) setTimeout(makeEngineMove, 250);
                     }
                 } else {
-                    console.error('[sendMoveToServer] Move rejected:', data.message);
-                    board.position(game.fen()); 
-                    return 'snapback'; 
+                    board.position(game.fen());
+                    return 'snapback';
                 }
             })
-            .catch(err => {
-                console.error('[sendMoveToServer] Fetch error:', err);
-            });
+            .catch(() => {});
         }
 
         function choosePromotion(pieceType) {
@@ -647,41 +608,38 @@
         function updateCheckHighlight() {
             $('.square-55d63').removeClass('highlight-check');
             if (game.in_check()) {
-                const boardLayout = game.board();
-                const turn = game.turn(); 
-
+                const layout = game.board();
+                const turn   = game.turn();
                 for (let i = 0; i < 8; i++) {
                     for (let j = 0; j < 8; j++) {
-                        const piece = boardLayout[i][j];
-                        if (piece && piece.type === 'k' && piece.color === turn) {
-                            const square = String.fromCharCode(97 + j) + (8 - i);
-                            $('#myBoard .square-' + square).addClass('highlight-check');
+                        const p = layout[i][j];
+                        if (p && p.type === 'k' && p.color === turn) {
+                            const sq = String.fromCharCode(97 + j) + (8 - i);
+                            $(`#myBoard .square-${sq}`).addClass('highlight-check');
                         }
                     }
                 }
             }
         }
 
+        /* ═══════════════════════════════════════════════════════
+           ENGINE
+           ═══════════════════════════════════════════════════════ */
         function makeEngineMove() {
-            const levelToSend = currentElo || 400;
-
-            fetch("/engine_move", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ level: levelToSend, fen: game.fen() })
+            fetch('/engine_move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ level: currentElo || 400, fen: game.fen() })
             })
-            .then(res => res.json())
+            .then(r => r.json())
             .then(data => {
                 if (data.move) {
                     clearArrows();
-                    
                     game.move(data.move, { sloppy: true });
                     board.position(data.fen);
-
                     moveHistoryFens.push(game.fen());
                     currentMoveIndex = moveHistoryFens.length - 1;
                     highlightCurrentMove();
-                    
                     updateMoveList();
                     updateCheckHighlight();
                     if (!game.game_over() && currentGameMode === 'play' && autoHintMode) {
@@ -690,45 +648,37 @@
                     checkGameOver();
                 }
             })
-            .catch(err => {
-                console.error("Communication Breakdowns:", err);
-            });
+            .catch(() => {});
         }
 
         function requestAutoHint() {
             if (game.game_over() || !autoHintMode) return;
             const historyAtView = game.history().slice(0, currentMoveIndex + 1);
             const tempGame = new Chess();
-            historyAtView.forEach(move => tempGame.move(move));
+            historyAtView.forEach(m => tempGame.move(m));
             const pgnAtView = tempGame.pgn();
-            const currentFen = moveHistoryFens[currentMoveIndex];
-            const moveNumber = Math.floor(currentMoveIndex / 2) + 1;
 
             fetch('/ask_coach', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    question: 'Please give a short, practical hint for the player after the opponent move.',
-                    fen: currentFen,
+                    question: 'Give a single, concrete, practical hint for the player right now — no more than two sentences.',
+                    fen: moveHistoryFens[currentMoveIndex],
                     pgn: pgnAtView,
                     history: historyAtView,
                     eval: lastKnownEval,
                     player_color: currentPlayerColor,
                     game_mode: currentGameMode,
                     bot_elo: currentElo,
-                    move_number: moveNumber,
+                    move_number: Math.floor(currentMoveIndex / 2) + 1,
                     conversation_log: coachChatLog.slice(-6)
                 })
             })
-            .then(res => res.json())
+            .then(r => r.json())
             .then(data => {
-                if (data.status === 'success') {
-                    appendChatMessage('bot', '💡 Hint: ' + data.answer, true);
-                }
+                if (data.status === 'success') appendChatMessage('bot', '💡 Hint: ' + data.answer, true);
             })
-            .catch(err => {
-                console.warn('Auto hint failed:', err);
-            });
+            .catch(() => {});
         }
 
         function toggleAutoHint() {
@@ -744,236 +694,195 @@
             }
         }
 
+        /* ═══════════════════════════════════════════════════════
+           EVAL BAR
+           ═══════════════════════════════════════════════════════ */
         function updateEvalBar(evalValue) {
-            lastKnownEval = evalValue; // keep it for chat context
+            lastKnownEval = evalValue;
             const bar = document.getElementById('eval-bar');
             if (typeof evalValue === 'string' && evalValue.startsWith('M')) {
                 bar.style.height = evalValue.includes('-') ? '0%' : '100%';
             } else {
-                let percentage = 50 + (evalValue * 10);
-                percentage = Math.max(5, Math.min(95, percentage)); 
-                bar.style.height = percentage + '%';
+                let pct = 50 + (evalValue * 10);
+                pct = Math.max(5, Math.min(95, pct));
+                bar.style.height = pct + '%';
             }
         }
 
+        /* ═══════════════════════════════════════════════════════
+           START / RESIGN
+           ═══════════════════════════════════════════════════════ */
         function handleStartResign() {
             if (!gameInProgress) {
-                // Start the game
                 startNewGame();
+            } else if (!resignConfirmPending) {
+                resignConfirmPending = true;
+                const btn = document.getElementById('start-resign-btn');
+                if (btn) { btn.textContent = '❓ Are you sure?'; btn.style.background = '#e67e22'; }
             } else {
-                if (!resignConfirmPending) {
-                    // First click — ask "Are you sure?" on the button itself
-                    resignConfirmPending = true;
-                    const btn = document.getElementById('start-resign-btn');
-                    if (btn) {
-                        btn.textContent = '❓ Are you sure?';
-                        btn.style.background = '#e67e22'; // orange warning color
-                    }
-                } else {
-                    // Second click — actually resign
-                    resignConfirmPending = false;
-                    const winnerColor = currentPlayerColor === 'white' ? 'Black' : 'White';
-                    $('#end-title').text('You Resigned');
-                    $('#end-subtitle').text(winnerColor + ' Wins');
-                    $('#game-over-overlay').css('display', 'flex');
-                    const summaryBtn = document.querySelector('#game-over-overlay .primary');
-                    if (summaryBtn) summaryBtn.style.display = 'inline-block';
-                    setStartResignBtn('start');
-                    gameInProgress = false;
-                    boardLocked = true;
-                    document.getElementById('takeback-row').style.display = 'none';
-                }
+                resignConfirmPending = false;
+                const winnerColor = currentPlayerColor === 'white' ? 'Black' : 'White';
+                $('#end-title').text('You Resigned');
+                $('#end-subtitle').text(winnerColor + ' Wins');
+                $('#game-over-overlay').css('display', 'flex');
+                const summaryBtn = document.querySelector('#game-over-overlay .primary');
+                if (summaryBtn) summaryBtn.style.display = 'inline-block';
+                setStartResignBtn('start');
+                gameInProgress = false;
+                boardLocked    = true;
+                document.getElementById('takeback-row').style.display = 'none';
             }
         }
 
         function setStartResignBtn(state) {
             const btn = document.getElementById('start-resign-btn');
             if (!btn) return;
-            resignConfirmPending = false; // always clear pending state
-            btn.style.background = '';    // clear any inline override (orange)
+            resignConfirmPending = false;
+            btn.style.background = '';
             if (state === 'start') {
                 btn.textContent = '▶ Start Game';
-                btn.className = 'start-game-btn';
-                // Re-enable ELO and color buttons
+                btn.className   = 'start-game-btn';
                 document.querySelectorAll('.elo-btn, .color-btn').forEach(b => b.disabled = false);
             } else {
                 btn.textContent = '🏳 Resign';
-                btn.className = 'resign-game-btn';
-                // Lock ELO and color buttons during game
+                btn.className   = 'resign-game-btn';
                 document.querySelectorAll('.elo-btn, .color-btn').forEach(b => b.disabled = true);
             }
         }
 
         function startNewGame() {
             clearArrows();
-            moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
+            moveHistoryFens  = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
             currentMoveIndex = 0;
-
-            // Resolve random color choice and remember the actual game color.
-            const resolvedColor = (playerColor === 'random')
-                ? (Math.random() < 0.5 ? 'white' : 'black')
-                : playerColor;
-            currentPlayerColor = resolvedColor;
+            const resolved   = (playerColor === 'random') ? (Math.random() < 0.5 ? 'white' : 'black') : playerColor;
+            currentPlayerColor = resolved;
 
             fetch('/reset', { method: 'POST' })
-            .then(res => res.json())
+            .then(r => r.json())
             .then(() => {
                 game.reset();
-                board.orientation(resolvedColor);
+                board.orientation(resolved);
                 board.start();
                 updateMoveList();
                 updateEvalBar(0);
                 $('#game-over-overlay').hide();
                 $('.square-55d63').removeClass('highlight-check');
-
-                // Mark game as started, unlock board, flip button to Resign
                 if (currentGameMode === 'play') {
                     gameInProgress = true;
-                    boardLocked = false;
+                    boardLocked    = false;
                     setStartResignBtn('resign');
                     document.getElementById('takeback-row').style.display = 'flex';
                 }
-
-                // If playing as Black, engine goes first
-                if (currentGameMode === 'play' && resolvedColor === 'black') {
+                if (currentGameMode === 'play' && resolved === 'black') {
                     setTimeout(makeEngineMove, 400);
                 }
             });
         }
 
         function resetGame() {
-            gameInProgress = false;
-            boardLocked = true;
+            gameInProgress       = false;
+            boardLocked          = true;
             resignConfirmPending = false;
-            coachChatLog = [];
+            coachChatLog         = [];
             setStartResignBtn('start');
             document.getElementById('takeback-row').style.display = 'none';
             startNewGame();
         }
 
+        /* ═══════════════════════════════════════════════════════
+           BOARD UTILS
+           ═══════════════════════════════════════════════════════ */
         function clearArrows() {
             const svg = document.getElementById('arrow-svg');
             if (svg) svg.innerHTML = '';
         }
 
         function toggleFlip() {
-            // Flip board orientation and keep the analysis role consistent: the player is assumed to be the side shown at the bottom.
             const current = board.orientation();
-            const newOrientation = current === 'white' ? 'black' : 'white';
-            board.orientation(newOrientation);
-
+            const next    = current === 'white' ? 'black' : 'white';
+            board.orientation(next);
             if (currentGameMode === 'analysis') {
-                playerColor = newOrientation;
-                document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
-                const colorBtn = document.getElementById(`color-${playerColor}`);
-                if (colorBtn) colorBtn.classList.add('active');
+                playerColor = next;
+                document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+                const cb = document.getElementById(`color-${playerColor}`);
+                if (cb) cb.classList.add('active');
             }
-
             updateOrientationLabel();
             const flipBtn = document.getElementById('flip-btn');
-            if (flipBtn) {
-                flipBtn.textContent = `🔄 Flip Board${getPlayingSideText()}`;
-            }
+            if (flipBtn) flipBtn.textContent = `🔄 Flip Board${getPlayingSideText()}`;
         }
 
         function getPlayingSideText() {
-            const current = board.orientation();
-            return current === 'black' ? ' (Playing as Black)' : ' (Playing as White)';
+            return board.orientation() === 'black' ? ' (as Black)' : ' (as White)';
         }
 
         function updateOrientationLabel() {
-            const orientationLabel = document.getElementById('orientation-label');
-            if (!orientationLabel) return;
-            const current = board.orientation();
-            orientationLabel.textContent = current === 'black' ? 'Playing as Black' : 'Playing as White';
+            const el = document.getElementById('orientation-label');
+            if (!el) return;
+            el.textContent = board.orientation() === 'black' ? 'Playing as Black' : 'Playing as White';
         }
 
+        /* ═══════════════════════════════════════════════════════
+           ARROW
+           ═══════════════════════════════════════════════════════ */
         function drawBestMoveArrow(fromSq, toSq) {
-            const boardElement = document.getElementById('myBoard');
-            const boardRect = boardElement.getBoundingClientRect();
-            const squareSize = boardRect.width / 8;
+            const boardEl  = document.getElementById('myBoard');
+            const rect     = boardEl.getBoundingClientRect();
+            const sqSize   = rect.width / 8;
 
-            function getCoords(squareIndex) {
+            function coords(idx) {
                 const isFlipped = board.orientation() === 'black';
-                let col = squareIndex % 8;
-                let row = 7 - Math.floor(squareIndex / 8);
-                // When board is flipped, mirror both axes
-                if (isFlipped) {
-                    col = 7 - col;
-                    row = 7 - row;
-                }
-                return {
-                    x: col * squareSize + squareSize / 2,
-                    y: row * squareSize + squareSize / 2
-                };
+                let col = idx % 8;
+                let row = 7 - Math.floor(idx / 8);
+                if (isFlipped) { col = 7 - col; row = 7 - row; }
+                return { x: col * sqSize + sqSize / 2, y: row * sqSize + sqSize / 2 };
             }
 
-            const start = getCoords(fromSq);
-            const end = getCoords(toSq);
-
+            const s = coords(fromSq), e = coords(toSq);
             let svg = document.getElementById('arrow-svg');
             if (!svg) {
-                svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                svg.id = "arrow-svg";
-                svg.setAttribute("style", "position:absolute; top:0; left:0; pointer-events:none; z-index: 10;");
-                svg.setAttribute("width", boardRect.width);
-                svg.setAttribute("height", boardRect.height);
-                boardElement.appendChild(svg);
+                svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.id = 'arrow-svg';
+                svg.setAttribute('style', 'position:absolute;top:0;left:0;pointer-events:none;z-index:10;');
+                svg.setAttribute('width', rect.width);
+                svg.setAttribute('height', rect.height);
+                boardEl.appendChild(svg);
             }
             svg.innerHTML = '';
 
-            // 1. Calculate the angle of the line
-            const angle = Math.atan2(end.y - start.y, end.x - start.x);
-            
-            // 2. Shorten the line slightly so it doesn't poke out the front of the arrowhead
-            const headLength = squareSize * 0.4; 
-            const lineEndX = end.x - (headLength * 0.5) * Math.cos(angle);
-            const lineEndY = end.y - (headLength * 0.5) * Math.sin(angle);
+            const angle      = Math.atan2(e.y - s.y, e.x - s.x);
+            const headLen    = sqSize * 0.4;
+            const lineEndX   = e.x - (headLen * 0.5) * Math.cos(angle);
+            const lineEndY   = e.y - (headLen * 0.5) * Math.sin(angle);
 
-            // 3. Draw the Line (The Shaft)
-            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            line.setAttribute("x1", start.x);
-            line.setAttribute("y1", start.y);
-            line.setAttribute("x2", lineEndX);
-            line.setAttribute("y2", lineEndY);
-            line.setAttribute("stroke", "rgba(50, 200, 50, 0.5)"); // Cleaner green
-            line.setAttribute("stroke-width", squareSize * 0.15);  // Proportional thickness
-            line.setAttribute("stroke-linecap", "round");
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', s.x); line.setAttribute('y1', s.y);
+            line.setAttribute('x2', lineEndX); line.setAttribute('y2', lineEndY);
+            line.setAttribute('stroke', 'rgba(50,200,50,0.55)');
+            line.setAttribute('stroke-width', sqSize * 0.15);
+            line.setAttribute('stroke-linecap', 'round');
             svg.appendChild(line);
 
-            // 4. Draw the Arrowhead (The Triangle)
-            const head = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-            
-            // Calculate 3 points of the triangle relative to 'end'
-            const x1 = end.x;
-            const y1 = end.y;
-            const x2 = end.x - headLength * Math.cos(angle - Math.PI / 6);
-            const y2 = end.y - headLength * Math.sin(angle - Math.PI / 6);
-            const x3 = end.x - headLength * Math.cos(angle + Math.PI / 6);
-            const y3 = end.y - headLength * Math.sin(angle + Math.PI / 6);
-
-            head.setAttribute("points", `${x1},${y1} ${x2},${y2} ${x3},${y3}`);
-            head.setAttribute("fill", "rgba(50, 200, 50, 0.5)");
+            const head = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            head.setAttribute('points', [
+                `${e.x},${e.y}`,
+                `${e.x - headLen * Math.cos(angle - Math.PI / 6)},${e.y - headLen * Math.sin(angle - Math.PI / 6)}`,
+                `${e.x - headLen * Math.cos(angle + Math.PI / 6)},${e.y - headLen * Math.sin(angle + Math.PI / 6)}`
+            ].join(' '));
+            head.setAttribute('fill', 'rgba(50,200,50,0.55)');
             svg.appendChild(head);
         }
 
+        /* ═══════════════════════════════════════════════════════
+           MOVE HISTORY NAVIGATION
+           ═══════════════════════════════════════════════════════ */
         function highlightCurrentMove() {
-            // 1. Remove highlight from everyone
-            const allMoves = document.querySelectorAll('.move-val');
-            allMoves.forEach(move => move.classList.remove('current-move'));
-
-            // 2. Find the move that matches our current view index
+            document.querySelectorAll('.move-val').forEach(m => m.classList.remove('current-move'));
             if (currentMoveIndex > 0) {
-                const activeMove = document.querySelector(`.move-val[data-index="${currentMoveIndex}"]`);
-                
-                if (activeMove) {
-                    activeMove.classList.add('current-move');
-                    
-                    // 3. Smooth scroll so the move is always visible
-                    activeMove.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'nearest'
-                    });
+                const active = document.querySelector(`.move-val[data-index="${currentMoveIndex}"]`);
+                if (active) {
+                    active.classList.add('current-move');
+                    active.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
             }
         }
@@ -1003,616 +912,420 @@
             syncPositionWithBackend();
         }
 
-        // --- AI COACH CHAT LOGIC WITH TYPEWRITER EFFECT ---
+        document.addEventListener('keydown', function(e) {
+            const tag = document.activeElement.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+            if (e.key === 'ArrowLeft' && currentMoveIndex > 0) {
+                currentMoveIndex--;
+                board.position(moveHistoryFens[currentMoveIndex]);
+                highlightCurrentMove();
+                syncPositionWithBackend();
+            } else if (e.key === 'ArrowRight' && currentMoveIndex < moveHistoryFens.length - 1) {
+                currentMoveIndex++;
+                board.position(moveHistoryFens[currentMoveIndex]);
+                highlightCurrentMove();
+                syncPositionWithBackend();
+            }
+            clearArrows();
+            $('.square-55d63').removeClass('highlight-check');
+        });
+
+        function syncPositionWithBackend() {
+            const fullHistory   = game.history();
+            const historyAtIdx  = fullHistory.slice(0, currentMoveIndex);
+            return fetch('/sync_position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fen: moveHistoryFens[currentMoveIndex], history: historyAtIdx })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'success' && currentGameMode === 'analysis') updateEvalBar(data.evaluation);
+            })
+            .catch(() => {});
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           CHAT
+           ═══════════════════════════════════════════════════════ */
         function appendChatMessage(sender, text, animate = false) {
             const chatHistory = document.getElementById('chat-history');
-            const msgDiv = document.createElement('div');
-            
-            msgDiv.style.padding = '10px';
-            msgDiv.style.borderRadius = '8px';
-            msgDiv.style.marginBottom = '10px';
-            msgDiv.style.fontSize = '0.9rem';
-            msgDiv.style.lineHeight = '1.4';
-            msgDiv.style.whiteSpace = 'pre-wrap';
+            const msgDiv      = document.createElement('div');
+            msgDiv.style.cssText = 'padding:10px;border-radius:8px;margin-bottom:8px;font-size:0.88rem;line-height:1.45;white-space:pre-wrap;';
 
             const prefix = sender === 'bot' ? '<strong>🤖 Coach:</strong> ' : '<strong>👤 You:</strong> ';
 
-            // Track conversation for Socratic follow-up (keep last 6 messages)
-            const role = sender === 'bot' ? 'assistant' : 'user';
+            const role       = sender === 'bot' ? 'assistant' : 'user';
             const cleanForLog = text.replace(/\*\*/g, '');
             coachChatLog.push({ role, content: cleanForLog });
-            if (coachChatLog.length > 6) coachChatLog.shift();
+            if (coachChatLog.length > 8) coachChatLog.shift();
 
             if (sender === 'bot') {
-                msgDiv.style.background = '#f1f5f9'; 
-                msgDiv.style.color = '#334155';
-
+                msgDiv.style.background = '#f1f5f9';
+                msgDiv.style.color      = '#334155';
                 if (animate) {
                     msgDiv.innerHTML = prefix;
                     chatHistory.appendChild(msgDiv);
-                    
                     let i = 0;
-                    const cleanText = text.replace(/\*\*/g, ''); 
-                    
+                    const clean = text.replace(/\*\*/g, '');
                     function typeWriter() {
-                        if (i < cleanText.length) {
-                            msgDiv.innerHTML += cleanText.charAt(i);
-                            i++;
-                            chatHistory.scrollTop = chatHistory.scrollHeight;
-                            setTimeout(typeWriter, 20);
-                        }
+                        if (i < clean.length) { msgDiv.innerHTML += clean.charAt(i); i++; chatHistory.scrollTop = chatHistory.scrollHeight; setTimeout(typeWriter, 18); }
                     }
                     typeWriter();
                     return;
                 }
             } else {
-                msgDiv.style.background = '#e0f2fe'; 
-                msgDiv.style.color = '#0369a1';
+                msgDiv.style.background = '#e0f2fe';
+                msgDiv.style.color      = '#0369a1';
             }
-            
             msgDiv.innerHTML = prefix + text;
             chatHistory.appendChild(msgDiv);
-            chatHistory.scrollTop = chatHistory.scrollHeight; 
+            chatHistory.scrollTop = chatHistory.scrollHeight;
         }
 
-        // 1. Explain Move Button Action
+        /* ── Explain Move ───────────────────────────────────────── */
         document.getElementById('explain-btn').addEventListener('click', function() {
-            // Use history up to the current view position (not always the full game)
             const historyAtView = game.history().slice(0, currentMoveIndex);
-
             if (historyAtView.length === 0) {
-                appendChatMessage("bot", "Make at least one move first!", true);
+                appendChatMessage('bot', 'Make at least one move first!', true);
                 return;
             }
+            appendChatMessage('user', 'Can you explain my last move?');
+            const loadingDiv = addLoadingBubble('Analyzing your move...');
 
-            appendChatMessage("user", "Can you explain my last move?");
-            
-            const chatHistory = document.getElementById('chat-history');
-            const loadingDiv = document.createElement('div');
-            loadingDiv.id = "coach-loading"; 
-            loadingDiv.className = "msg bot";
-            loadingDiv.innerHTML = "<em>Analyzing your move...</em>";
-            chatHistory.appendChild(loadingDiv);
-            chatHistory.scrollTop = chatHistory.scrollHeight;
-
-            fetch("/explain_move", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                    mode: currentGameMode,
-                    fen: moveHistoryFens[currentMoveIndex],
-                    history: historyAtView   // history UP TO the viewed position
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                const loader = document.getElementById('coach-loading');
-                if (loader) loader.remove();
-
-                if (data.status === "success") {
-                    appendChatMessage("bot", data.explanation, true);
-                } else {
-                    appendChatMessage("bot", "Oops: " + data.message, true);
-                }
-            })
-        });
-
-        // 2. Best Move / Suggestion Action
-        document.getElementById('suggest-btn').addEventListener('click', function() {
-            appendChatMessage("user", "What is the best move here?");
-            
-            const chatHistory = document.getElementById('chat-history');
-            const loadingDiv = document.createElement('div');
-            loadingDiv.id = "coach-loading"; 
-            loadingDiv.className = "msg bot";
-            loadingDiv.innerHTML = "<em>Calculating the best line...</em>";
-            chatHistory.appendChild(loadingDiv);
-            chatHistory.scrollTop = chatHistory.scrollHeight;
-
-            fetch("/best_move", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                    fen: moveHistoryFens[currentMoveIndex],
-                    history: game.history().slice(0, currentMoveIndex)
-                })  // current view position and history
-            })
-            .then(res => res.json())
-            .then(data => {
-                const loader = document.getElementById('coach-loading');
-                if (loader) loader.remove();
-
-                if (data.status === "success") {
-                    drawBestMoveArrow(data.from_sq, data.to_sq);
-
-                    const combinedMessage = `I recommend ${data.move}.\n\n${data.explanation}`;
-                    appendChatMessage("bot", combinedMessage, true); // true = Typewriter effect!
-                } else {
-                    appendChatMessage("bot", "Oops: " + data.message, true);
-                }
-            })
-            .catch(err => {
-                const loader = document.getElementById('coach-loading');
-                if (loader) loader.remove();
-                appendChatMessage("bot", "My connection to the engine dropped.", true);
-            });
-        });
-
-        document.addEventListener('keydown', function(e) {
-            if (document.activeElement.tagName === 'INPUT') return;
-            if (document.activeElement.tagName === 'TEXTAREA') return;
-
-            if (e.key === 'ArrowLeft') {
-                if (currentMoveIndex > 0) {
-                    currentMoveIndex--;
-                    board.position(moveHistoryFens[currentMoveIndex]);
-                    highlightCurrentMove();
-                    syncPositionWithBackend();
-                }
-            } else if (e.key === 'ArrowRight') {
-                if (currentMoveIndex < moveHistoryFens.length - 1) {
-                    currentMoveIndex++;
-                    board.position(moveHistoryFens[currentMoveIndex]);
-                    highlightCurrentMove();
-                    syncPositionWithBackend();
-                }
-            }
-
-            // Handle the Overlay visibility
-            if (e.key === 'ArrowRight' && currentMoveIndex === moveHistoryFens.length - 1) {
-                if (game.game_over()) {
-                    $('#game-over-overlay').css('display', 'flex');
-                }
-            }
-            
-            clearArrows();
-            $('.square-55d63').removeClass('highlight-check');
-        });
-        // ─── SYNC POSITION WITH BACKEND (arrow key navigation) ───────────
-        function syncPositionWithBackend() {
-            // Get the move history up to the current view index
-            const fullHistory = game.history();
-            const historyAtIndex = fullHistory.slice(0, currentMoveIndex);
-            const currentFen = moveHistoryFens[currentMoveIndex];
-
-            return fetch('/sync_position', {
+            fetch('/explain_move', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fen: currentFen, history: historyAtIndex })
+                body: JSON.stringify({ mode: currentGameMode, fen: moveHistoryFens[currentMoveIndex], history: historyAtView })
             })
-            .then(res => res.json())
+            .then(r => r.json())
             .then(data => {
-                if (data.status === 'success' && currentGameMode === 'analysis') {
-                    updateEvalBar(data.evaluation);
-                }
-                return data;
+                loadingDiv.remove();
+                appendChatMessage('bot', data.status === 'success' ? data.explanation : 'Oops: ' + data.message, true);
             })
-            .catch(err => {
-                console.error('Sync error:', err);
-                throw err;
-            });
+            .catch(() => { loadingDiv.remove(); appendChatMessage('bot', 'Connection error.', true); });
+        });
+
+        /* ── Best Move ──────────────────────────────────────────── */
+        document.getElementById('suggest-btn').addEventListener('click', function() {
+            appendChatMessage('user', 'What is the best move here?');
+            const loadingDiv = addLoadingBubble('Calculating best line...');
+
+            fetch('/best_move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fen: moveHistoryFens[currentMoveIndex], history: game.history().slice(0, currentMoveIndex) })
+            })
+            .then(r => r.json())
+            .then(data => {
+                loadingDiv.remove();
+                if (data.status === 'success') {
+                    drawBestMoveArrow(data.from_sq, data.to_sq);
+                    appendChatMessage('bot', `I recommend ${data.move}.\n\n${data.explanation}`, true);
+                } else {
+                    appendChatMessage('bot', 'Oops: ' + data.message, true);
+                }
+            })
+            .catch(() => { loadingDiv.remove(); appendChatMessage('bot', 'Connection dropped.', true); });
+        });
+
+        function addLoadingBubble(text) {
+            const chatHistory = document.getElementById('chat-history');
+            const div = document.createElement('div');
+            div.id = 'coach-loading';
+            div.className = 'msg bot';
+            div.style.cssText = 'padding:10px;border-radius:8px;margin-bottom:8px;font-size:0.88rem;background:#f1f5f9;color:#334155;';
+            div.innerHTML = `<em>${text}</em>`;
+            chatHistory.appendChild(div);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+            return div;
         }
 
-        // ─── PGN MODAL OPEN / CLOSE ──────────────────────────────────────
-        function openPGNModal() {
-            document.getElementById('pgn-modal-overlay').style.display = 'flex';
+        /* ── Game Summary ───────────────────────────────────────── */
+        function requestGameSummary() {
+            $('#game-over-overlay').hide();
+            appendChatMessage('user', 'Can you give me a summary of that game?');
+            const loadingDiv = addLoadingBubble('Analyzing the full game PGN...');
+
+            fetch('/game_summary', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pgn: game.pgn(), bot_elo: currentElo, player_color: currentPlayerColor })
+            })
+            .then(r => r.json())
+            .then(data => {
+                loadingDiv.remove();
+                appendChatMessage('bot', data.status === 'success' ? data.summary : 'Oops: ' + data.message, true);
+            })
+            .catch(() => { loadingDiv.remove(); appendChatMessage('bot', 'Connection dropped.', true); });
         }
 
-        function closePGNModalDirect() {
-            document.getElementById('pgn-modal-overlay').style.display = 'none';
+        /* ═══════════════════════════════════════════════════════
+           COACH CHAT
+           ═══════════════════════════════════════════════════════ */
+        function sendCoachMessage() {
+            const input    = document.getElementById('coach-input');
+            const question = input.value.trim();
+            if (!question) return;
+            input.value = '';
+            appendChatMessage('user', question);
+
+            const loadingDiv       = addLoadingBubble('Coach is thinking...');
+            const fullHistory      = game.history();
+            const historyAtView    = fullHistory.slice(0, currentMoveIndex);
+            const currentFen       = moveHistoryFens[currentMoveIndex];
+            const moveNumber       = Math.floor(currentMoveIndex / 2) + 1;
+            const tempGame         = new Chess();
+            historyAtView.forEach(m => tempGame.move(m));
+            const pgnAtView        = tempGame.pgn();
+
+            fetch('/ask_coach', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question, fen: currentFen, pgn: pgnAtView, history: historyAtView,
+                    eval: lastKnownEval, player_color: playerColor,
+                    game_mode: currentGameMode,
+                    bot_elo: currentGameMode === 'play' ? currentElo : null,
+                    move_number: moveNumber,
+                    conversation_log: coachChatLog.slice(0, -1)
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                loadingDiv.remove();
+                appendChatMessage('bot', data.status === 'success' ? data.answer : 'Sorry, coach unavailable: ' + data.message, true);
+            })
+            .catch(() => { loadingDiv.remove(); appendChatMessage('bot', 'Connection dropped. Try again.', true); });
         }
 
-        function closePGNModal(e) {
-            // Only close if clicking the dark backdrop itself, not the modal box
-            if (e.target === document.getElementById('pgn-modal-overlay')) {
-                closePGNModalDirect();
+        document.getElementById('coach-send-btn').addEventListener('click', sendCoachMessage);
+        document.getElementById('coach-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCoachMessage(); }
+        });
+
+        /* ═══════════════════════════════════════════════════════
+           TAKEBACK
+           ═══════════════════════════════════════════════════════ */
+        function takeback() {
+            if (currentGameMode === 'play' && !gameInProgress) return;
+            const history    = game.history();
+            if (history.length === 0) return;
+
+            let movesToPop = 1;
+            if (currentGameMode === 'play') {
+                const engineColor    = currentPlayerColor === 'white' ? 'b' : 'w';
+                const lastMoveColor  = (history.length - 1) % 2 === 0 ? 'w' : 'b';
+                movesToPop = lastMoveColor === engineColor && history.length >= 2 ? 2 : 1;
             }
+
+            fetch('/takeback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ moves_to_pop: movesToPop, fen: moveHistoryFens[currentMoveIndex], history: game.history().slice(0, currentMoveIndex) })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const popped = data.popped || 0;
+                    for (let i = 0; i < popped; i++) game.undo();
+                    for (let i = 0; i < popped; i++) { if (moveHistoryFens.length > 1) moveHistoryFens.pop(); }
+                    currentMoveIndex = moveHistoryFens.length - 1;
+                    board.position(data.fen);
+                    updateMoveList();
+                    clearArrows();
+                    $('.square-55d63').removeClass('highlight-check');
+                    if (resignConfirmPending) {
+                        resignConfirmPending = false;
+                        const btn = document.getElementById('start-resign-btn');
+                        if (btn) { btn.textContent = '🏳 Resign'; btn.style.background = ''; }
+                    }
+                    appendChatMessage('bot', 'Takeback granted — try a different move!', true);
+                }
+            })
+            .catch(() => { appendChatMessage('bot', 'Takeback failed. Try again.', true); });
         }
 
-        // ─── PGN UPLOAD / LOAD ───────────────────────────────────────────
-
-        let pgnLoadComplete = true; // flag to prevent moves during async PGN load
+        /* ═══════════════════════════════════════════════════════
+           PGN MODAL
+           ═══════════════════════════════════════════════════════ */
+        function openPGNModal()        { document.getElementById('pgn-modal-overlay').style.display = 'flex'; }
+        function closePGNModalDirect() { document.getElementById('pgn-modal-overlay').style.display = 'none'; }
+        function closePGNModal(e)      { if (e.target === document.getElementById('pgn-modal-overlay')) closePGNModalDirect(); }
 
         function loadPGNString(pgn) {
             const trimmed = pgn.trim();
-            if (!trimmed) {
-                showToast('❌ No PGN found.', '#c0392b');
-                return;
-            }
-
+            if (!trimmed) { showToast('❌ No PGN found.', '#c0392b'); return; }
             const testGame = new Chess();
-            const loaded = testGame.load_pgn(trimmed);
+            if (!testGame.load_pgn(trimmed)) { showToast('❌ Invalid PGN — check the format.', '#c0392b'); return; }
 
-            if (!loaded) {
-                showToast('❌ Invalid PGN — check the format.', '#c0392b');
-                return;
-            }
-
-            console.log('[loadPGNString] PGN loaded successfully');
-            pgnLoadComplete = false; // Block moves during load
-
+            pgnLoadComplete = false;
             fetch('/load_pgn', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pgn: trimmed })
             })
-            .then(res => res.json())
+            .then(r => r.json())
             .then(data => {
-                if (data.status !== 'success') {
-                    console.error('[loadPGNString] load_pgn failed:', data);
-                    showToast('❌ Could not load PGN.');
-                    pgnLoadComplete = true;
-                    return;
-                }
-
+                if (data.status !== 'success') { showToast('❌ Could not load PGN.'); pgnLoadComplete = true; return; }
                 game.reset();
                 game.load_pgn(trimmed);
-                console.log('[loadPGNString] game.reset() and game.load_pgn() called, game history length:', game.history().length);
-
-                // Rebuild FEN history so arrow keys work
                 moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
-                const replayBoard = new Chess();
-                for (const move of game.history()) {
-                    replayBoard.move(move);
-                    moveHistoryFens.push(replayBoard.fen());
-                }
-                console.log('[loadPGNString] moveHistoryFens rebuilt, length:', moveHistoryFens.length);
-
+                const replay = new Chess();
+                for (const m of game.history()) { replay.move(m); moveHistoryFens.push(replay.fen()); }
                 currentMoveIndex = moveHistoryFens.length - 1;
-                console.log('[loadPGNString] currentMoveIndex set to:', currentMoveIndex);
-
                 board.position(data.fen);
                 updateMoveList();
                 updateEvalBar(data.evaluation);
                 highlightCurrentMove();
                 $('.square-55d63').removeClass('highlight-check');
                 clearArrows();
-
-                // Clear the input fields
-                document.getElementById('pgn-text-input').value = '';
-                document.getElementById('pgn-file-input').value = '';
+                document.getElementById('pgn-text-input').value  = '';
+                document.getElementById('pgn-file-input').value  = '';
                 document.getElementById('pgn-drop-label').textContent = '🗂 Drag & drop a .pgn file here';
                 closePGNModalDirect();
-
                 pgnLoadComplete = true;
-                console.log('[loadPGNString] Ready for moves. currentMoveIndex:', currentMoveIndex, 'moveHistoryFens.length:', moveHistoryFens.length);
                 showToast('✅ Game loaded! Use ← → to review.');
             })
-            .catch(err => {
-                console.error('[loadPGNString] fetch error:', err);
-                showToast('❌ Could not load PGN.');
-                pgnLoadComplete = true;
-            });
+            .catch(() => { showToast('❌ Could not load PGN.'); pgnLoadComplete = true; });
         }
 
         function loadPGNFromInput() {
-            const text = document.getElementById('pgn-text-input').value;
-            loadPGNString(text);
+            loadPGNString(document.getElementById('pgn-text-input').value);
         }
 
-        // File input (Browse button)
         document.getElementById('pgn-file-input').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
             const reader = new FileReader();
-            reader.onload = function(ev) { loadPGNString(ev.target.result); };
+            reader.onload = ev => loadPGNString(ev.target.result);
             reader.readAsText(file);
         });
 
-        // Drag-and-drop onto the drop zone
         const dropZone = document.getElementById('pgn-drop-zone');
-
-        dropZone.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            dropZone.classList.add('pgn-drag-over');
-        });
-
-        dropZone.addEventListener('dragleave', function() {
-            dropZone.classList.remove('pgn-drag-over');
-        });
-
+        dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('pgn-drag-over'); });
+        dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('pgn-drag-over'));
         dropZone.addEventListener('drop', function(e) {
             e.preventDefault();
             dropZone.classList.remove('pgn-drag-over');
             const file = e.dataTransfer.files[0];
-            if (!file || !file.name.endsWith('.pgn')) {
-                showToast('❌ Please drop a .pgn file.', '#c0392b');
-                return;
-            }
+            if (!file || !file.name.endsWith('.pgn')) { showToast('❌ Please drop a .pgn file.', '#c0392b'); return; }
             document.getElementById('pgn-drop-label').textContent = `📄 ${file.name}`;
             const reader = new FileReader();
-            reader.onload = function(ev) { loadPGNString(ev.target.result); };
+            reader.onload = ev => loadPGNString(ev.target.result);
             reader.readAsText(file);
         });
 
-
-
+        /* ═══════════════════════════════════════════════════════
+           TOAST
+           ═══════════════════════════════════════════════════════ */
         function showToast(message, color) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.style.background = color || '#27ae60';
-            toast.style.display = 'block';
-            toast.style.opacity = '1';
+            toast.style.display    = 'block';
+            toast.style.opacity    = '1';
             setTimeout(() => {
                 toast.style.opacity = '0';
                 setTimeout(() => { toast.style.display = 'none'; }, 400);
             }, 2500);
         }
 
+        /* ═══════════════════════════════════════════════════════
+           PGN COPY / SHARE
+           ═══════════════════════════════════════════════════════ */
         function copyPGN() {
             const pgn = game.pgn();
-            if (!pgn) {
-                showToast('❌ No moves yet!', '#c0392b');
-                return;
-            }
-            navigator.clipboard.writeText(pgn).then(() => {
-                showToast('✅ PGN copied to clipboard!');
-            }).catch(() => {
-                // Fallback for older browsers
+            if (!pgn) { showToast('❌ No moves yet!', '#c0392b'); return; }
+            navigator.clipboard.writeText(pgn).then(() => showToast('✅ PGN copied!')).catch(() => {
                 const el = document.createElement('textarea');
-                el.value = pgn;
-                document.body.appendChild(el);
-                el.select();
-                document.execCommand('copy');
-                document.body.removeChild(el);
-                showToast('✅ PGN copied to clipboard!');
+                el.value = pgn; document.body.appendChild(el); el.select();
+                document.execCommand('copy'); document.body.removeChild(el);
+                showToast('✅ PGN copied!');
             });
         }
 
         function shareGame() {
             const pgn = game.pgn();
-            if (!pgn) {
-                showToast('❌ No moves to share yet!', '#c0392b');
-                return;
-            }
-            // Encode the PGN into a URL parameter
-            const encoded = encodeURIComponent(pgn);
-            const shareUrl = window.location.origin + window.location.pathname + '?pgn=' + encoded;
-
-            navigator.clipboard.writeText(shareUrl).then(() => {
-                showToast('🔗 Share link copied! Send it to a friend.');
-            }).catch(() => {
+            if (!pgn) { showToast('❌ No moves to share!', '#c0392b'); return; }
+            const url = window.location.origin + window.location.pathname + '?pgn=' + encodeURIComponent(pgn);
+            navigator.clipboard.writeText(url).then(() => showToast('🔗 Share link copied!')).catch(() => {
                 const el = document.createElement('textarea');
-                el.value = shareUrl;
-                document.body.appendChild(el);
-                el.select();
-                document.execCommand('copy');
-                document.body.removeChild(el);
-                showToast('🔗 Share link copied! Send it to a friend.');
+                el.value = url; document.body.appendChild(el); el.select();
+                document.execCommand('copy'); document.body.removeChild(el);
+                showToast('🔗 Share link copied!');
             });
         }
 
-        // ─── AUTO-LOAD FROM SHARED LINK ──────────────────────────────────
-        // If the page URL has ?pgn=..., load that game automatically
+        /* ═══════════════════════════════════════════════════════
+           AUTO-LOAD FROM URL
+           ═══════════════════════════════════════════════════════ */
         (function loadFromUrl() {
-            const params = new URLSearchParams(window.location.search);
+            const params  = new URLSearchParams(window.location.search);
             const pgnParam = params.get('pgn');
-            const savedId = params.get('load_game');
+            const savedId  = params.get('load_game');
 
             if (savedId) {
                 fetch(`/get_saved_game?id=${encodeURIComponent(savedId)}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.status !== 'success' || !data.game) {
-                            showToast('❌ Could not load saved game.', '#c0392b');
-                            return;
-                        }
-                        loadPGNString(data.game.pgn);
-                        showToast('📂 Saved game loaded! Use ← → to review.');
-                    })
-                    .catch(() => {
-                        showToast('❌ Could not load saved game.', '#c0392b');
-                    });
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status !== 'success' || !data.game) { showToast('❌ Could not load saved game.', '#c0392b'); return; }
+                    loadPGNString(data.game.pgn);
+                    showToast('📂 Saved game loaded! Use ← → to review.');
+                })
+                .catch(() => showToast('❌ Could not load saved game.', '#c0392b'));
                 window.history.replaceState({}, '', window.location.pathname);
                 return;
             }
 
             if (!pgnParam) return;
-
             const pgn = decodeURIComponent(pgnParam);
             const loaded = game.load_pgn(pgn);
+            if (!loaded) { showToast('❌ Could not load shared game.', '#c0392b'); return; }
 
-            if (!loaded) {
-                showToast('❌ Could not load shared game.', '#c0392b');
-                return;
-            }
-
-            // Rebuild the move history FEN list so arrow keys work
             moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
-            const replayBoard = new Chess();
-            const moves = game.history();
-            for (const move of moves) {
-                replayBoard.move(move);
-                moveHistoryFens.push(replayBoard.fen());
-            }
-
-            // Jump to the last position
+            const replay = new Chess();
+            for (const m of game.history()) { replay.move(m); moveHistoryFens.push(replay.fen()); }
             currentMoveIndex = moveHistoryFens.length - 1;
             board.position(game.fen());
             updateMoveList();
             updateEvalBar(0);
-
-            // Switch to Analysis mode automatically
             setMode('analysis', document.querySelector('.mode-btn'));
-
             showToast('📂 Shared game loaded! Use ← → to review.');
-
-            // Clean the URL so it doesn't re-trigger on refresh
             window.history.replaceState({}, '', window.location.pathname);
         })();
 
-        // ─── FREE-TEXT COACH CHAT ─────────────────────────────────────────
-
-        function sendCoachMessage() {
-            const input = document.getElementById('coach-input');
-            const question = input.value.trim();
-            if (!question) return;
-
-            input.value = '';
-            appendChatMessage("user", question);
-
-            // Show loading indicator
-            const chatHistory = document.getElementById('chat-history');
-            const loadingDiv = document.createElement('div');
-            loadingDiv.id = 'coach-loading';
-            loadingDiv.className = 'msg bot';
-            loadingDiv.innerHTML = '<em>Coach is thinking...</em>';
-            chatHistory.appendChild(loadingDiv);
-            chatHistory.scrollTop = chatHistory.scrollHeight;
-
-            // Build the full history up to the current view position
-            const fullHistory = game.history();
-            const historyAtView = fullHistory.slice(0, currentMoveIndex);
-            const currentFen   = moveHistoryFens[currentMoveIndex];
-            const moveNumber   = Math.floor(currentMoveIndex / 2) + 1;
-
-            // Reconstruct PGN up to the current view position
-            const tempGame = new Chess();
-            for (const move of historyAtView) { tempGame.move(move); }
-            const pgnAtView = tempGame.pgn();
-
-            fetch('/ask_coach', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    question:          question,
-                    fen:               currentFen,
-                    pgn:               pgnAtView,
-                    history:           historyAtView,
-                    eval:              lastKnownEval,
-                    player_color:      playerColor,
-                    game_mode:         currentGameMode,
-                    bot_elo:           currentGameMode === 'play' ? currentElo : null,
-                    move_number:       moveNumber,
-                    conversation_log:  coachChatLog.slice(0, -1) // all but the message we just added
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                const loader = document.getElementById('coach-loading');
-                if (loader) loader.remove();
-
-                if (data.status === 'success') {
-                    appendChatMessage('bot', data.answer, true);
-                } else {
-                    appendChatMessage('bot', 'Sorry, coach is unavailable: ' + data.message, true);
-                }
-            })
-            .catch(() => {
-                const loader = document.getElementById('coach-loading');
-                if (loader) loader.remove();
-                appendChatMessage('bot', 'Connection dropped. Try again.', true);
-            });
-        }
-
-        // ─── TAKEBACK ─────────────────────────────────────────────────────
-        function takeback() {
-            if (currentGameMode === 'play' && !gameInProgress) return;
-
-            const history = game.history();
-            const totalMoves = history.length;
-            if (totalMoves === 0) return;
-
-            let movesToPop = 1;
-            if (currentGameMode === 'play') {
-                const engineColor = currentPlayerColor === 'white' ? 'b' : 'w';
-                const lastMoveColor = (totalMoves - 1) % 2 === 0 ? 'w' : 'b';
-
-                if (lastMoveColor === engineColor) {
-                    // If the engine just moved, take back the full exchange so the user can choose a new reply.
-                    movesToPop = totalMoves >= 2 ? 2 : 1;
-                } else {
-                    // If the user just moved and the engine hasn't replied yet, undo only that user move.
-                    movesToPop = 1;
-                }
-            } else {
-                // In analysis mode, always undo only the very last move played.
-                movesToPop = 1;
-            }
-
-            const currentFen = moveHistoryFens[currentMoveIndex];
-            const historyAtView = game.history().slice(0, currentMoveIndex);
-
-            fetch('/takeback', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    moves_to_pop: movesToPop,
-                    fen: currentFen,
-                    history: historyAtView
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    const popped = data.popped || 0;
-
-                    // Undo exactly as many plies as the server popped to avoid
-                    // frontend/backend desyncs.
-                    for (let i = 0; i < popped; i++) {
-                        game.undo();
-                    }
-
-                    // Rebuild FEN history to stay in sync
-                    for (let i = 0; i < popped; i++) {
-                        if (moveHistoryFens.length > 1) moveHistoryFens.pop();
-                    }
-                    currentMoveIndex = moveHistoryFens.length - 1;
-
-                    board.position(data.fen);
-                    updateMoveList();
-                    clearArrows();
-                    $('.square-55d63').removeClass('highlight-check');
-
-                    // If resign confirm was pending, clear it back to plain Resign
-                    if (resignConfirmPending) {
-                        resignConfirmPending = false;
-                        const btn = document.getElementById('start-resign-btn');
-                        if (btn) { btn.textContent = '🏳 Resign'; btn.style.background = ''; }
-                    }
-
-                    appendChatMessage('bot', 'Takeback granted — make a different move!', true);
-                }
-            })
-            .catch(() => {
-                appendChatMessage('bot', 'Takeback failed. Try again.', true);
-            });
-        }
-
-        // Send on button click
-        document.getElementById('coach-send-btn').addEventListener('click', sendCoachMessage);
-
-        // Send on Enter key (but NOT Shift+Enter)
-        document.getElementById('coach-input').addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendCoachMessage();
-            }
-        });
-
-    </script>
-
-    <!-- Lenis Library -->
-    <!-- Initialize Lenis & Smooth Header -->
-    <script>
-        const lenis = new Lenis();
-        const header = document.querySelector('.site-header');
-
-        // Tell the header to shrink when scrolled past 50 pixels
-        lenis.on('scroll', (e) => {
-            if (window.scrollY > 50) {
-                header.classList.add('compact');
-            } else {
-                header.classList.remove('compact');
-            }
-        });
-
-        function raf(time) {
-            lenis.raf(time);
-            requestAnimationFrame(raf);
-        }
-
+        /* ═══════════════════════════════════════════════════════
+           LENIS
+           ═══════════════════════════════════════════════════════ */
+        const lenis = new Lenis({ lerp: 0.08, smooth: true });
+        function raf(time) { lenis.raf(time); requestAnimationFrame(raf); }
         requestAnimationFrame(raf);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.nav-guard').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    if (typeof hasUnsavedMoves === 'function' && hasUnsavedMoves()) {
+                        e.preventDefault();
+                        _pendingNavHref = link.getAttribute('href');
+                        openNavWarningModal();
+                    }
+                });
+            });
+        });
+        /* ═══════════════════════════════════════════════════════
+            DYNAMIC RESIZING FOR HIGH-DPI DISPLAYS
+        ═══════════════════════════════════════════════════════ */
+        var resizeTimeout;
+        window.addEventListener('resize', function() {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(function() {
+                if (board) {
+                    board.resize();
+                    clearArrows(); // Redraw arrows accurately after size changes
+                }
+            }, 150);
+        });
     </script>
 </body>
 </html>

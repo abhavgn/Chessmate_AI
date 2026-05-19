@@ -53,5 +53,18 @@
             </div>
         </section>
     </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.nav-guard').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    if (typeof hasUnsavedMoves === 'function' && hasUnsavedMoves()) {
+                        e.preventDefault();
+                        _pendingNavHref = link.getAttribute('href');
+                        openNavWarningModal();
+                    }
+                });
+            });
+        });
+    </script>
 </body>
 </html>
