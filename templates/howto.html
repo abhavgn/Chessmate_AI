@@ -8,10 +8,10 @@
 </head>
 <body class="home-body">
     <header class="site-header home-header">
-        <div class="brand">
+        <a href="/" class="brand">
             <img src="{{ url_for('static', filename='img/main-logo.png') }}" alt="Chessmate AI logo" class="logo-image" onerror="this.style.display='none'">
             <div class="logo-mark">♟</div>
-        </div>
+        </a>
         <nav class="site-nav">
             <a href="/" class="nav-link">Home</a>
             <a href="/play" class="nav-link">Play</a>
@@ -65,6 +65,51 @@
                 });
             });
         });
+    </script>
+    <script>
+        (function() {
+            // Inject necessary Lenis helper CSS dynamically to prevent viewport jitter
+            const style = document.createElement('style');
+            style.textContent = `
+                html.lenis, html.lenis body { height: auto !important; }
+                .lenis.lenis-smooth { scroll-behavior: auto !important; }
+                .lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+                .lenis.lenis-stopped { overflow: hidden; }
+                .lenis.lenis-scrolling iframe { pointer-events: none; }
+            `;
+            document.head.appendChild(style);
+
+            function initLenis() {
+                if (typeof Lenis === 'undefined') return;
+                const lenis = new Lenis({
+                    duration: 1.2,
+                    easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+                    direction: 'vertical',
+                    gestureDirection: 'vertical',
+                    smooth: true,
+                    mouseMultiplier: 1,
+                    smoothTouch: false,
+                    touchMultiplier: 2,
+                    infinite: false,
+                });
+
+                function raf(time) {
+                    lenis.raf(time);
+                    requestAnimationFrame(raf);
+                }
+                requestAnimationFrame(raf);
+            }
+
+            // Load the CDN script dynamically if it hasn't been fetched yet
+            if (typeof Lenis === 'undefined') {
+                const script = document.createElement('script');
+                script.src = "https://unpkg.com/lenis@1.1.14/dist/lenis.min.js";
+                script.onload = initLenis;
+                document.head.appendChild(script);
+            } else {
+                initLenis();
+            }
+        })();
     </script>
 </body>
 </html>

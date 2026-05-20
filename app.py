@@ -31,35 +31,21 @@ app = Flask(__name__,
 
 # --- REST OF YOUR CODE ---
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-DEFAULT_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1")
-
-# When you eventually call Stockfish, remember to wrap it too:
-# engine = chess.engine.SimpleEngine.popen_uci(resource_path("engines/stockfish.exe"))
+DEFAULT_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 
 system_instruction = (
     """
     You are a practical, concise, and accurate chess coach.
-    Your job is to explain a single move using only the provided board data.
-    Use exact piece names, exact squares, and exact move notation from the DATA.
+    Your job is to explain chess positions or moves using ONLY the provided ground-truth board data.
     Never invent pieces, squares, tactics, threats, or move sequences not present in the current board data.
+    Use exact piece names, exact squares, and exact move notation from the provided data.
     If the data does not say it, do not claim it.
 
-    CRITICAL RULES:
-    1. Use the provided DATA literally. Only describe the move using the pieces and squares shown.
-    2. If the move is a capture, identify the exact captured piece and the exact square it was taken from.
-    3. If the move gives up material without immediate equal recapture, treat it as a sacrifice, not a simple trade.
-    4. If the move is categorized as Mistake, Blunder, or Missing Checkmate, identify the exact opponent piece and exact response move from the provided 'Engine's Best Next Move' data.
-    5. Do not mention engine evaluations, centipawns, or speculative alternative moves.
-    6. Answer in 1 to 4 sentences. No bullet lists. No headers. No fluff.
-
-    CATEGORICAL RESPONSE GUIDELINES:
-    - Opening/Book Move: Explain how the move develops a piece, controls center, or frees another piece.
-    - Good/Positional Move: Explain the job the piece is doing, what it strengthens, or what square it controls.
-    - Inaccuracy: Explain the small loss of tempo or why the opponent gets an easier path; do not label it a blunder.
-    - Mistake: Explain the concrete problem the move creates or ignores.
-    - Blunder: Identify what is hanging and what exact opponent response punishes it.
-    - Missing Checkmate: Explain the fatal oversight and how the provided engine response finishes the win.
-    - Missed Win: State the exact missed move from the data and what that move would have achieved.
+    CRITICAL COMPLIANCE RULES:
+    1. Use the provided DATA literally. Only describe the position or move using the pieces and squares shown.
+    2. If explaining a move, verify piece identities and square occupants strictly from the 'CURRENT PIECE LOCATIONS' list or ASCII grid.
+    3. Do not mention engine evaluations, centipawns, or speculative alternative moves unless provided.
+    4. Answer concisely in 1 to 3 sentences. No bullet lists. No headers. No fluff.
     """
 )
 
@@ -618,7 +604,7 @@ def game_summary():
                 """},
                 {"role": "user", "content": f"Here is the game PGN:\n{pgn}\n\nPlease summarize my performance."}
             ],
-            temperature=0.7
+            temperature=0.3
         )
         summary_text = response.choices[0].message.content
         return jsonify({"status": "success", "summary": summary_text})
@@ -857,7 +843,7 @@ STRICT RULES — NEVER BREAK THESE:
                 {"role": "system", "content": system_instruction},
                 {"role": "user",   "content": prompt}
             ],
-            temperature=0.2    # lower temperature → less hallucination
+            temperature=0.0    # Deterministic absolute zero logic
         )
         return jsonify({"status": "success", "explanation": response.choices[0].message.content})
     except Exception as e:
@@ -934,7 +920,7 @@ def best_move():
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3
+            temperature=0.0    # Deterministic absolute zero logic
         )
         
         return jsonify({
@@ -1158,6 +1144,22 @@ def evaluate_user_suggested_move(board, user_message, history=None):
 
 # ─── ASK COACH ROUTE ─────────────────────────────────────────────────────────
 
+def get_ascii_board_with_coordinates(board):
+    """
+    Generates a clean ASCII grid with rank and file labels.
+    Gives the LLM a highly structured spatial token map.
+    """
+    raw_ascii = str(board)
+    lines = raw_ascii.split('\n')
+    grid = []
+    for i, line in enumerate(lines):
+        rank_num = 8 - i
+        grid.append(f"{rank_num} | {line}")
+    grid.append("  + ----------------")
+    grid.append("    a b c d e f g h")
+    return "\n".join(grid)
+
+
 def get_piece_positions(board):
     positions = []
     for sq in chess.SQUARES:
@@ -1167,7 +1169,14 @@ def get_piece_positions(board):
             positions.append(
                 f"{color} {chess.piece_name(p.piece_type).capitalize()} on {chess.square_name(sq)}"
             )
-    return ", ".join(positions) if positions else "No pieces on board."
+            
+    ascii_grid = get_ascii_board_with_coordinates(board)
+    
+    return f"""ASCII GRID (Capital = White, Lowercase = Black):
+{ascii_grid}
+
+LIST OF PIECE LOCATIONS:
+{", ".join(positions) if positions else "No pieces on board."}"""
 
 
 def did_coach_ask_question(conversation_log):
@@ -1461,7 +1470,7 @@ Black King Safety: {black_king_safety}
         response = client.chat.completions.create(
             model=DEFAULT_CHAT_MODEL,
             messages=messages,
-            temperature=0.4,
+            temperature=0.0,  # Deterministic absolute zero logic
             max_tokens=300
         )
         answer = response.choices[0].message.content

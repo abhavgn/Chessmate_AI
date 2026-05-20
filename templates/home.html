@@ -5,14 +5,49 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chessmate AI — Home</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://unpkg.com/lenis@1.1.14/dist/lenis.min.js"></script>
+    <style>
+        /* Interactive features styles */
+        .belo {
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+        .belo:hover {
+            background: rgba(201, 162, 39, 0.15) !important;
+            border-color: var(--gold-bright) !important;
+            color: var(--text-primary) !important;
+        }
+        .bento-eval-demo {
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.3s ease;
+            padding: 8px;
+            border-radius: var(--r-md);
+            background: rgba(15, 17, 26, 0.2);
+        }
+        .bento-eval-demo:hover {
+            background: rgba(15, 17, 26, 0.4);
+        }
+        .bento-eval-demo:hover .bed-bar {
+            border-color: var(--gold-bright);
+        }
+        .bento-eval-demo.flipped {
+            flex-direction: column-reverse;
+        }
+        .bed-fill {
+            /* 0.85s ease makes the bar morph smoothly and fluidly rather than jumping */
+            transition: height 0.85s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+    </style>
 </head>
 <body class="home-body">
 
     <header class="site-header home-header">
-        <div class="brand">
+        <a href="/" class="brand">
             <img src="{{ url_for('static', filename='img/main-logo.png') }}" alt="Chessmate AI logo" class="logo-image" onerror="this.style.display='none'">
             <div class="logo-mark">♟</div>
-        </div>
+        </a>
         <nav class="site-nav">
             <a href="/" class="nav-link active">Home</a>
             <a href="/play" class="nav-link">Play</a>
@@ -144,14 +179,14 @@
                     </div>
                 </div>
 
-                <div class="bento-card bento-tall">
+                <div class="bento-card bento-tall" id="bento-eval-card">
                     <div class="bento-icon-bg">📊</div>
                     <div class="bento-content">
                         <h3>Live Eval Bar</h3>
-                        <p>See the position advantage shift in real time as you move pieces. White on top, black on bottom — instantly know who's winning.</p>
-                        <div class="bento-eval-demo">
+                        <p>See the position advantage shift in real time as you move pieces. White on top, black on bottom — instantly know who's winning. (Click to switch perspective)</p>
+                        <div class="bento-eval-demo" id="bento-eval-demo">
                             <div class="bed-label">White</div>
-                            <div class="bed-bar"><div class="bed-fill" style="height:70%"></div></div>
+                            <div class="bed-bar"><div class="bed-fill" id="bed-fill" style="height:70%"></div></div>
                             <div class="bed-label">Black</div>
                         </div>
                     </div>
@@ -230,26 +265,121 @@
     </div><!-- /.home-shell -->
 
     <script>
-        (function() {
+        document.addEventListener('DOMContentLoaded', function() {
+            // Header scroll effects
             const header = document.querySelector('.site-header');
-            if (!header) return;
-            const updateHeader = () => {
-                header.classList.toggle('compact', window.scrollY > 80);
-            };
-            window.addEventListener('scroll', updateHeader, { passive: true });
-            updateHeader();
-        })();
-        document.addEventListener('DOMContentLoaded', () => {
-            document.querySelectorAll('.nav-guard').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    if (typeof hasUnsavedMoves === 'function' && hasUnsavedMoves()) {
-                        e.preventDefault();
-                        _pendingNavHref = link.getAttribute('href');
-                        openNavWarningModal();
-                    }
+            if (header) {
+                const updateHeader = () => {
+                    header.classList.toggle('compact', window.scrollY > 80);
+                };
+                window.addEventListener('scroll', updateHeader, { passive: true });
+                updateHeader();
+            }
+
+            // 1. Interactive ELO Levels
+            const eloButtons = document.querySelectorAll('.belo');
+            eloButtons.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    eloButtons.forEach(b => b.classList.remove('belo-active'));
+                    this.classList.add('belo-active');
                 });
             });
+
+            // 2. Card-Triggered Fluid Eval Bar
+            const evalCard = document.getElementById('bento-eval-card');
+            const evalDemo = document.getElementById('bento-eval-demo');
+            const evalFill = document.getElementById('bed-fill');
+
+            if (evalCard && evalFill) {
+                let evalInterval = null;
+                const baselineHeight = '55%'; // Default frozen height
+
+                // Initialize to static baseline
+                evalFill.style.height = baselineHeight;
+
+                function startSmoothFluctuation() {
+                    if (evalInterval) return;
+
+                    // Perform an immediate smooth glide
+                    triggerSmoothShift();
+
+                    // Change height smoothly every 950ms (matches transition length)
+                    evalInterval = setInterval(triggerSmoothShift, 950);
+                }
+
+                function triggerSmoothShift() {
+                    // Generate a dramatic target height (between 15% and 85%)
+                    const targetPct = Math.floor(Math.random() * 70) + 15;
+                    evalFill.style.height = targetPct + '%';
+                }
+
+                function stopSmoothFluctuation() {
+                    clearInterval(evalInterval);
+                    evalInterval = null;
+                    
+                    // Smoothly ease back and freeze at the baseline
+                    evalFill.style.height = baselineHeight;
+                }
+
+                // Attach hover listeners to the entire card container
+                evalCard.addEventListener('mouseenter', startSmoothFluctuation);
+                evalCard.addEventListener('mouseleave', stopSmoothFluctuation);
+
+                // Clicking the demo area still toggles flipped orientation
+                if (evalDemo) {
+                    evalDemo.addEventListener('click', function(e) {
+                        e.stopPropagation(); // Prevent duplicate triggers
+                        this.classList.toggle('flipped');
+                    });
+                }
+            }
         });
+    </script>
+    <!-- ── UNIVERSAL LENIS SMOOTH SCROLL INITIALIZATION ── -->
+    <script>
+        (function() {
+            // Inject necessary Lenis helper CSS dynamically to prevent viewport jitter
+            const style = document.createElement('style');
+            style.textContent = `
+                html.lenis, html.lenis body { height: auto !important; }
+                .lenis.lenis-smooth { scroll-behavior: auto !important; }
+                .lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+                .lenis.lenis-stopped { overflow: hidden; }
+                .lenis.lenis-scrolling iframe { pointer-events: none; }
+            `;
+            document.head.appendChild(style);
+
+            function initLenis() {
+                if (typeof Lenis === 'undefined') return;
+                const lenis = new Lenis({
+                    duration: 1.2,
+                    easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+                    direction: 'vertical',
+                    gestureDirection: 'vertical',
+                    smooth: true,
+                    mouseMultiplier: 1,
+                    smoothTouch: false,
+                    touchMultiplier: 2,
+                    infinite: false,
+                });
+
+                function raf(time) {
+                    lenis.raf(time);
+                    requestAnimationFrame(raf);
+                }
+                requestAnimationFrame(raf);
+            }
+
+            // Load the CDN script dynamically if it hasn't been fetched yet
+            if (typeof Lenis === 'undefined') {
+                const script = document.createElement('script');
+                script.src = "https://unpkg.com/lenis@1.1.14/dist/lenis.min.js";
+                script.onload = initLenis;
+                document.head.appendChild(script);
+            } else {
+                initLenis();
+            }
+        })();
     </script>
 </body>
 </html>

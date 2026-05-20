@@ -134,20 +134,28 @@ html.lenis, html.lenis body { height: auto; }
     to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Brand */
 .brand {
     display: flex;
     align-items: center;
     gap: 14px;
     flex-shrink: 0;
+    text-decoration: none; /* Prevents underlines on link container */
+    outline: none;
 }
 
 .logo-image {
-    height: 56px;
+    height: 96px; /* Significantly larger on all scale options */
     width: auto;
-    max-width: 280px;
+    max-width: 380px; /* Proportionately wider threshold */
     object-fit: contain;
-    filter: drop-shadow(0 3px 16px rgba(201,162,39,0.28));
+    filter: drop-shadow(0 4px 24px rgba(201, 162, 39, 0.40));
+    transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+/* Enhances hover feedback for interactive logos */
+.logo-image:hover {
+    transform: scale(1.02);
+    filter: drop-shadow(0 6px 28px rgba(201, 162, 39, 0.55));
 }
 
 .logo-mark {
