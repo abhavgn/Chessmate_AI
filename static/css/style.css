@@ -1890,10 +1890,35 @@ html.lenis, html.lenis body { height: auto; }
     border: 2px solid var(--border-mid);
     border-radius: var(--r-sm);
     overflow: hidden;
-    box-shadow: var(--shadow-lg);
     width: 100%;
     max-width: 300px;
+    aspect-ratio: 1; /* Guarantees the container remains a perfect square */
+    position: relative; /* Anchor for absolute pieces */
+    box-shadow: var(--shadow-lg);
 }
+
+.hero-board-piece {
+    position: absolute;
+    width: 12.5%; /* Matches exactly 1/8th of the grid */
+    height: 12.5%;
+    object-fit: contain;
+    /* Ultra-smooth cubic-bezier transition curves for chess piece glides */
+    transition: top 0.7s cubic-bezier(0.25, 1, 0.5, 1), left 0.7s cubic-bezier(0.25, 1, 0.5, 1);
+    z-index: 20;
+    pointer-events: none;
+}
+
+.hero-board-highlight {
+    position: absolute;
+    width: 12.5%;
+    height: 12.5%;
+    background-color: rgba(201, 162, 39, 0.38) !important;
+    box-shadow: inset 0 0 0 2px rgba(201, 162, 39, 0.62);
+    z-index: 10;
+    pointer-events: none;
+    transition: top 0.4s ease, left 0.4s ease;
+}
+
 
 .hb-row {
     display: grid;
@@ -2504,4 +2529,45 @@ html.lenis, html.lenis body { height: auto; }
 
 #chat-history {
     flex-grow: 1; /* Let chat history fill exactly the remaining height */
+}
+
+/* ── CLICK-TO-MOVE STYLING ── */
+
+/* Highlight applied to the currently selected piece */
+.selected-square {
+    background-color: rgba(201, 162, 39, 0.35) !important;
+    box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.7);
+}
+
+/* Semi-transparent center dot for standard legal moves */
+.highlight-legal-move {
+    position: relative;
+}
+.highlight-legal-move::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(18px, 20%);
+    aspect-ratio: 1;
+    background-color: rgba(201, 162, 39, 0.55);
+    border-radius: 50%;
+    pointer-events: none; /* Ensures clicking on the dot registers as a click on the square */
+    z-index: 10;
+}
+
+/* Subtle, thick red boundary indicating capturing possibilities */
+.highlight-legal-capture {
+    position: relative;
+}
+.highlight-legal-capture::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 4px solid rgba(192, 57, 43, 0.7);
+    border-radius: var(--r-sm);
+    background-color: rgba(192, 57, 43, 0.08); /* Extremely faint red background tint */
+    pointer-events: none;
+    z-index: 10;
 }

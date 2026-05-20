@@ -13,10 +13,12 @@
             user-select: none;
             transition: all 0.2s ease;
         }
-        .belo:hover {
+        /* Only apply hover effects if the button is NOT currently active */
+        .belo:not(.belo-active):hover {
             background: rgba(201, 162, 39, 0.15) !important;
             border-color: var(--gold-bright) !important;
             color: var(--text-primary) !important;
+            transform: translateY(-1px);
         }
         .bento-eval-demo {
             cursor: pointer;
@@ -78,30 +80,10 @@
             </div>
             <div class="home-hero-board" aria-hidden="true">
                 <div class="hero-board-glow"></div>
-                <div class="hero-board-grid">
-                    <!-- decorative chessboard pattern -->
-                    <div class="hb-row">
-                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
-                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
-                    </div>
+                <div class="hero-board-grid" id="hero-chessboard">
+                    <!-- 8x8 Background squares -->
                     <div class="hb-row">
                         <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
-                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
-                    </div>
-                    <div class="hb-row">
-                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l piece-n">♞</div>
-                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
-                    </div>
-                    <div class="hb-row">
-                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l piece-p">♟</div><div class="hb-sq d"></div>
-                        <div class="hb-sq l piece-active"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
-                    </div>
-                    <div class="hb-row">
-                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
-                        <div class="hb-sq d piece-P">♙</div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
-                    </div>
-                    <div class="hb-row">
-                        <div class="hb-sq l"></div><div class="hb-sq d piece-B">♗</div><div class="hb-sq l"></div><div class="hb-sq d"></div>
                         <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
                     </div>
                     <div class="hb-row">
@@ -112,7 +94,39 @@
                         <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
                         <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
                     </div>
+                    <div class="hb-row">
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                        <div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div>
+                    </div>
+                    <div class="hb-row">
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                        <div class="hb-sq d"></div><div class="hb-sq l"></div><div class="hb-sq d"></div><div class="hb-sq l"></div>
+                    </div>
+
+                    <!-- Active move target highlight block -->
+                    <div id="hero-board-highlight" class="hero-board-highlight" style="display: none;"></div>
+
+                    <!-- High-Resolution Graphic Piece Assets -->
+                    <img id="hp-white-bishop" src="https://chessboardjs.com/img/chesspieces/wikipedia/wB.png" class="hero-board-piece" alt="">
+                    <img id="hp-black-pawn-d6" src="https://chessboardjs.com/img/chesspieces/wikipedia/bP.png" class="hero-board-piece" alt="">
+                    <img id="hp-white-pawn" src="https://chessboardjs.com/img/chesspieces/wikipedia/wP.png" class="hero-board-piece" alt="">
+                    <img id="hp-black-knight" src="https://chessboardjs.com/img/chesspieces/wikipedia/bN.png" class="hero-board-piece" alt="">
+                    <img id="hp-white-king" src="https://chessboardjs.com/img/chesspieces/wikipedia/wK.png" class="hero-board-piece" alt="">
+                    <img id="hp-black-king" src="https://chessboardjs.com/img/chesspieces/wikipedia/bK.png" class="hero-board-piece" alt="">
                 </div>
+
                 <!-- Floating coach bubble -->
                 <div class="hero-coach-bubble">
                     <div class="coach-bubble-icon">🤖</div>
@@ -334,6 +348,56 @@
                 }
             }
         });
+
+        // 3. Hero Board Animated Movement Timeline
+        const hpWhiteBishop = document.getElementById('hp-white-bishop');
+        const hpBlackPawn   = document.getElementById('hp-black-pawn-d6');
+        const hpWhitePawn   = document.getElementById('hp-white-pawn');
+        const hpBlackKnight = document.getElementById('hp-black-knight');
+        const hpWhiteKing   = document.getElementById('hp-white-king');
+        const hpBlackKing   = document.getElementById('hp-black-king');
+        const hpHighlight   = document.getElementById('hero-board-highlight');
+
+        // Matrix map helper (Files: a=0, h=7; Ranks: 8=0, 1=7)
+        function setPieceCoordinates(element, fileIndex, rankIndex) {
+            element.style.left = (fileIndex * 12.5) + '%';
+            element.style.top  = (rankIndex * 12.5) + '%';
+        }
+
+        function runHeroChessAnimation() {
+            // Stage 1: Setup starting positions and standard safety Kings
+            setPieceCoordinates(hpWhiteKing,    6, 7); // White King safely castled on g1
+            setPieceCoordinates(hpBlackKing,    4, 0); // Black King positioned on e8
+            
+            setPieceCoordinates(hpWhiteBishop,  4, 6); // White Bishop relocated to e2 (clears the d5 diagonal)
+            setPieceCoordinates(hpBlackPawn,    3, 2); // Black Pawn on d6
+            
+            setPieceCoordinates(hpWhitePawn,    2, 6); // White Pawn starting on c2
+            setPieceCoordinates(hpBlackKnight,  5, 2); // Black Knight starting on f6
+            hpHighlight.style.display = 'none';
+
+            // Timeline Event 1: 1.5s -> White pushes pawn c2 to c3
+            setTimeout(() => {
+                setPieceCoordinates(hpWhitePawn, 2, 5); // Pawn pushed to c3 (supports d4/outpost)
+            }, 1500);
+
+            // Timeline Event 2: 3.2s -> Black jumps Knight f6 to d5 outpost
+            setTimeout(() => {
+                setPieceCoordinates(hpBlackKnight, 3, 3); // Knight jumps to d5 (The Outpost)
+                
+                // Highlight square d5
+                setPieceCoordinates(hpHighlight, 3, 3);
+                hpHighlight.style.display = 'block';
+            }, 3200);
+
+            // Timeline Event 3: 7.5s -> Restart loop smoothly
+            setTimeout(runHeroChessAnimation, 7500);
+        }
+
+        // Initialize loop on load
+        if (hpWhitePawn && hpBlackKnight) {
+            runHeroChessAnimation();
+        }
     </script>
     <!-- ── UNIVERSAL LENIS SMOOTH SCROLL INITIALIZATION ── -->
     <script>

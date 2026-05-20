@@ -10,15 +10,51 @@
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
     <script src="https://unpkg.com/lenis@1.1.14/dist/lenis.min.js"></script>
+    <style>
+        /* ── CLICK-TO-MOVE STYLING ── */
+        .selected-square {
+            background-color: rgba(201, 162, 39, 0.35) !important;
+            box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.7);
+        }
+        .highlight-legal-move {
+            position: relative;
+        }
+        .highlight-legal-move::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: min(18px, 20%);
+            aspect-ratio: 1;
+            background-color: rgba(201, 162, 39, 0.55);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .highlight-legal-capture {
+            position: relative;
+        }
+        .highlight-legal-capture::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border: 4px solid rgba(192, 57, 43, 0.7);
+            border-radius: var(--r-sm);
+            background-color: rgba(192, 57, 43, 0.08);
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
 </head>
 <body>
     <header class="site-header">
-        <a href="/" class="brand">
+        <a href="/" class="brand nav-guard">
             <img src="{{ url_for('static', filename='img/main-logo.png') }}" alt="Chessmate AI logo" class="logo-image" onerror="this.style.display='none'">
             <div class="logo-mark">♟</div>
         </a>
         <nav class="site-nav">
-            <a href="/" class="nav-link">Home</a>
+            <a href="/" class="nav-link nav-guard">Home</a>
             <a href="/play" class="nav-link nav-guard active">Play</a>
             <a href="/howto" class="nav-link nav-guard">How to Play</a>
             <a href="/saved_games" class="nav-link nav-guard">Saved Games</a>
@@ -258,6 +294,7 @@
         var autoHintMode       = true;
         var pendingMove        = null;
         var pgnLoadComplete    = true;
+        var selectedSquare = null;
 
         /* ═══════════════════════════════════════════════════════
            NAVIGATION GUARD — warn before leaving with unsaved moves
@@ -282,7 +319,7 @@
             // Nav warning buttons
             document.getElementById('nav-warn-save-btn').addEventListener('click', function() {
                 closeNavWarningModal();
-                openSaveModal(true); // after save, will navigate
+                openSaveModal(true, _pendingNavHref); // after save, redirect directly to the clicked link
             });
             document.getElementById('nav-warn-leave-btn').addEventListener('click', function() {
                 closeNavWarningModal();
@@ -291,6 +328,14 @@
             document.getElementById('nav-warn-cancel-btn').addEventListener('click', function() {
                 closeNavWarningModal();
                 _pendingNavHref = null;
+            });
+
+            // Bind click-to-move listener to chessboard squares
+            $('#myBoard').on('click', '[data-square]', function() {
+                var square = getSquareFromElement(this);
+                if (square) {
+                    handleSquareClick(square);
+                }
             });
         });
 
@@ -302,6 +347,100 @@
             document.getElementById('nav-warning-overlay').style.display = 'none';
         }
 
+
+        /* ═══════════════════════════════════════════════════════
+           CLICK-TO-MOVE MECHANICS
+           ═══════════════════════════════════════════════════════ */
+        function getSquareFromElement(el) {
+            var square = $(el).attr('data-square');
+            if (square) return square;
+            
+            var classList = $(el).attr('class').split(/\s+/);
+            for (var i = 0; i < classList.length; i++) {
+                // Regex matches only clean coordinates (a1 through h8), ignoring auxiliary classes
+                var match = classList[i].match(/^square-([a-h][1-8])$/);
+                if (match) {
+                    return match[1];
+                }
+            }
+            return null;
+        }
+
+        function highlightLegalMoves(square) {
+            removeHighlights();
+            
+            // Highlight the selected piece's square
+            $(`#myBoard .square-${square}`).addClass('selected-square');
+            
+            // Query chess.js for legal moves from this square
+            var moves = game.moves({ square: square, verbose: true });
+            moves.forEach(function(m) {
+                var targetClass = `.square-${m.to}`;
+                // If it is a capture or there is a piece on the target square, use capture styles
+                if (m.flags.indexOf('c') !== -1 || game.get(m.to)) {
+                    $(`#myBoard ${targetClass}`).addClass('highlight-legal-capture');
+                } else {
+                    $(`#myBoard ${targetClass}`).addClass('highlight-legal-move');
+                }
+            });
+        }
+
+        function removeHighlights() {
+            $(`#myBoard [data-square]`).removeClass('selected-square highlight-legal-move highlight-legal-capture');
+        }
+
+        function handleSquareClick(square) {
+            // Respect locked board states in Play AI mode
+            if (currentGameMode === 'play' && boardLocked) return;
+            if (currentMoveIndex !== moveHistoryFens.length - 1) return;
+            if (currentGameMode === 'play' && game.game_over()) return;
+
+            var piece = game.get(square);
+
+            if (selectedSquare) {
+                // Get legal moves for the selected piece
+                var moves = game.moves({ square: selectedSquare, verbose: true });
+                var isLegal = moves.some(function(m) { return m.to === square; });
+
+                if (isLegal) {
+                    var movingPiece = game.get(selectedSquare);
+                    // Check pawn promotion logic
+                    if (movingPiece && movingPiece.type === 'p' && (square[1] === '8' || square[1] === '1')) {
+                        pendingMove = { from: selectedSquare, to: square };
+                        document.getElementById('promotion-overlay').style.display = 'flex';
+                    } else {
+                        sendMoveToServer(selectedSquare + square, selectedSquare, square);
+                    }
+                    removeHighlights();
+                    selectedSquare = null;
+                } else {
+                    // Clicked an invalid square; check if we can switch selection to a different player piece
+                    if (piece && piece.color === game.turn()) {
+                        if (currentGameMode === 'play' && piece.color !== (currentPlayerColor === 'white' ? 'w' : 'b')) {
+                            removeHighlights();
+                            selectedSquare = null;
+                            return;
+                        }
+                        selectedSquare = square;
+                        highlightLegalMoves(square);
+                    } else {
+                        // Clicked empty space or opponent piece; clear selection
+                        removeHighlights();
+                        selectedSquare = null;
+                    }
+                }
+            } else {
+                // Select a piece if no prior selection exists
+                if (piece && piece.color === game.turn()) {
+                    if (currentGameMode === 'play' && piece.color !== (currentPlayerColor === 'white' ? 'w' : 'b')) {
+                        return;
+                    }
+                    selectedSquare = square;
+                    highlightLegalMoves(square);
+                }
+            }
+        }
+        
         /* ═══════════════════════════════════════════════════════
            BOARD INIT
            ═══════════════════════════════════════════════════════ */
@@ -382,10 +521,25 @@
 
         function continueToPlay(event) {
             event.stopPropagation();
-            closeSaveWarningModal(event);
-            if (pendingModeElement) {
-                applyMode('play', pendingModeElement);
-                pendingModeElement = null;
+            var cachedElement = pendingModeElement;
+            closeSaveWarningModal(event); // clears pendingModeElement
+            
+            // Wipe out analysis board states completely if they selected not to save
+            if (currentGameMode === 'analysis') {
+                game.reset();
+                board.start();
+                moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
+                currentMoveIndex = 0;
+                updateMoveList();
+                updateEvalBar(0);
+                $(`#myBoard [data-square]`).removeClass('highlight-check');
+                clearArrows();
+                removeHighlights();
+                selectedSquare = null;
+            }
+            
+            if (cachedElement) {
+                applyMode('play', cachedElement);
             }
         }
 
@@ -558,6 +712,8 @@
                 return;
             }
             sendMoveToServer(source + target, source, target);
+            removeHighlights();
+            selectedSquare = null;
         }
 
         function sendMoveToServer(moveText, source, target) {
@@ -586,7 +742,7 @@
                     }
                     if (currentGameMode === 'analysis') updateEvalBar(data.evaluation);
                     if (currentGameMode === 'play') {
-                        const engineColor = (currentPlayerColor === 'white') ? 'b' : 'w';
+                        const engineColor = (currentPlayerColor === 'white' ? 'b' : 'w');
                         if (game.turn() === engineColor) setTimeout(makeEngineMove, 250);
                     }
                 } else {
@@ -606,7 +762,7 @@
         }
 
         function updateCheckHighlight() {
-            $('.square-55d63').removeClass('highlight-check');
+            $(`#myBoard [data-square]`).removeClass('highlight-check');
             if (game.in_check()) {
                 const layout = game.board();
                 const turn   = game.turn();
@@ -766,7 +922,7 @@
                 updateMoveList();
                 updateEvalBar(0);
                 $('#game-over-overlay').hide();
-                $('.square-55d63').removeClass('highlight-check');
+                $(`#myBoard [data-square]`).removeClass('highlight-check');
                 if (currentGameMode === 'play') {
                     gameInProgress = true;
                     boardLocked    = false;
@@ -777,16 +933,6 @@
                     setTimeout(makeEngineMove, 400);
                 }
             });
-        }
-
-        function resetGame() {
-            gameInProgress       = false;
-            boardLocked          = true;
-            resignConfirmPending = false;
-            coachChatLog         = [];
-            setStartResignBtn('start');
-            document.getElementById('takeback-row').style.display = 'none';
-            startNewGame();
         }
 
         /* ═══════════════════════════════════════════════════════
@@ -893,6 +1039,8 @@
                 board.position(moveHistoryFens[currentMoveIndex]);
                 highlightCurrentMove();
                 syncPositionWithBackend();
+                removeHighlights();
+                selectedSquare = null;
             }
         }
 
@@ -902,6 +1050,8 @@
                 board.position(moveHistoryFens[currentMoveIndex]);
                 highlightCurrentMove();
                 syncPositionWithBackend();
+                removeHighlights();
+                selectedSquare = null;
             }
         }
 
@@ -910,6 +1060,8 @@
             board.position(moveHistoryFens[currentMoveIndex]);
             highlightCurrentMove();
             syncPositionWithBackend();
+            removeHighlights();
+            selectedSquare = null;
         }
 
         document.addEventListener('keydown', function(e) {
@@ -927,7 +1079,9 @@
                 syncPositionWithBackend();
             }
             clearArrows();
-            $('.square-55d63').removeClass('highlight-check');
+            $(`#myBoard [data-square]`).removeClass('highlight-check');
+            removeHighlights();
+            selectedSquare = null;
         });
 
         function syncPositionWithBackend() {
@@ -1134,13 +1288,15 @@
                     board.position(data.fen);
                     updateMoveList();
                     clearArrows();
-                    $('.square-55d63').removeClass('highlight-check');
+                    $(`#myBoard [data-square]`).removeClass('highlight-check');
                     if (resignConfirmPending) {
                         resignConfirmPending = false;
                         const btn = document.getElementById('start-resign-btn');
                         if (btn) { btn.textContent = '🏳 Resign'; btn.style.background = ''; }
                     }
                     appendChatMessage('bot', 'Takeback granted — try a different move!', true);
+                    removeHighlights();
+                    selectedSquare = null;
                 }
             })
             .catch(() => { appendChatMessage('bot', 'Takeback failed. Try again.', true); });
@@ -1178,7 +1334,7 @@
                 updateMoveList();
                 updateEvalBar(data.evaluation);
                 highlightCurrentMove();
-                $('.square-55d63').removeClass('highlight-check');
+                $(`#myBoard [data-square]`).removeClass('highlight-check');
                 clearArrows();
                 document.getElementById('pgn-text-input').value  = '';
                 document.getElementById('pgn-file-input').value  = '';
@@ -1186,6 +1342,8 @@
                 closePGNModalDirect();
                 pgnLoadComplete = true;
                 showToast('✅ Game loaded! Use ← → to review.');
+                removeHighlights();
+                selectedSquare = null;
             })
             .catch(() => { showToast('❌ Could not load PGN.'); pgnLoadComplete = true; });
         }
@@ -1204,7 +1362,7 @@
 
         const dropZone = document.getElementById('pgn-drop-zone');
         dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('pgn-drag-over'); });
-        dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('pgn-drag-over'));
+        dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('pgn-drop-over'));
         dropZone.addEventListener('drop', function(e) {
             e.preventDefault();
             dropZone.classList.remove('pgn-drag-over');
@@ -1296,25 +1454,7 @@
         })();
 
         /* ═══════════════════════════════════════════════════════
-           LENIS
-           ═══════════════════════════════════════════════════════ */
-        const lenis = new Lenis({ lerp: 0.08, smooth: true });
-        function raf(time) { lenis.raf(time); requestAnimationFrame(raf); }
-        requestAnimationFrame(raf);
-
-        document.addEventListener('DOMContentLoaded', () => {
-            document.querySelectorAll('.nav-guard').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    if (typeof hasUnsavedMoves === 'function' && hasUnsavedMoves()) {
-                        e.preventDefault();
-                        _pendingNavHref = link.getAttribute('href');
-                        openNavWarningModal();
-                    }
-                });
-            });
-        });
-        /* ═══════════════════════════════════════════════════════
-            DYNAMIC RESIZING FOR HIGH-DPI DISPLAYS
+           DYNAMIC RESIZING FOR HIGH-DPI DISPLAYS
         ═══════════════════════════════════════════════════════ */
         var resizeTimeout;
         window.addEventListener('resize', function() {
