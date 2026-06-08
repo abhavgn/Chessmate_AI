@@ -64,8 +64,8 @@
     <!-- ── NAVIGATION WARNING MODAL ─────────────────────────── -->
     <div id="nav-warning-overlay" class="nav-warning-overlay">
         <div class="nav-warning-box">
-            <h3>Unsaved Moves</h3>
-            <p>You have moves on the analysis board that haven't been saved. Would you like to save before leaving?</p>
+            <h3 id="nav-warn-title">Unsaved Moves</h3>
+            <p id="nav-warn-desc">You have moves on the analysis board that haven't been saved. Would you like to save before leaving?</p>
             <div class="nav-warning-actions">
                 <button class="action-btn primary" id="nav-warn-save-btn">Save &amp; Continue</button>
                 <button class="action-btn secondary" id="nav-warn-leave-btn">Leave Without Saving</button>
@@ -228,8 +228,8 @@
     <!-- ── MODE SWITCH WARNING MODAL (analysis → play) ────────── -->
     <div id="save-warning-overlay" class="save-warning-overlay" onclick="closeSaveWarningModal(event)">
         <div class="save-warning-box">
-            <h3>Unsaved Analysis</h3>
-            <p>You have analysis moves on the board. Would you like to save them before switching to Play AI?</p>
+            <h3 id="mode-warn-title">Unsaved Analysis</h3>
+            <p id="mode-warn-desc">You have analysis moves on the board. Would you like to save them before switching to Play AI?</p>
             <div class="save-warning-actions">
                 <button class="action-btn primary" onclick="saveAndGoToSavedGames(event)">Save &amp; View Saved Games</button>
                 <button class="action-btn secondary" onclick="continueToPlay(event)">Continue Without Saving</button>
@@ -302,7 +302,8 @@
         var _pendingNavHref = null;
 
         function hasUnsavedMoves() {
-            return currentGameMode === 'analysis' && moveHistoryFens.length > 1;
+            // Returns true if there are moves on the board in both Analysis and Play AI modes
+            return moveHistoryFens.length > 1;
         }
 
         // Intercept all .nav-guard links
@@ -330,9 +331,12 @@
                 _pendingNavHref = null;
             });
 
-            // Bind click-to-move listener to chessboard squares
-            $('#myBoard').on('click', '[data-square]', function() {
-                var square = getSquareFromElement(this);
+            // Bind click-to-move listener to chessboard squares and piece assets
+            $('#myBoard').on('click touchend', function(e) {
+                // Prevents double-taps on mobile devices
+                if (e.type === 'click' && window.ontouchstart !== undefined) return;
+                
+                var square = getSquareFromElement(e.target);
                 if (square) {
                     handleSquareClick(square);
                 }
@@ -340,6 +344,22 @@
         });
 
         function openNavWarningModal() {
+            var titleEl = document.getElementById('nav-warn-title');
+            var descEl  = document.getElementById('nav-warn-desc');
+            
+            if (currentGameMode === 'play') {
+                if (gameInProgress) {
+                    if (titleEl) titleEl.textContent = "Game In Progress";
+                    if (descEl)  descEl.textContent  = "You are currently playing a game against the AI. Would you like to save your progress before leaving?";
+                } else {
+                    if (titleEl) titleEl.textContent = "Save Completed Game?";
+                    if (descEl)  descEl.textContent  = "Your game is complete. Would you like to save it to your library before leaving?";
+                }
+            } else {
+                if (titleEl) titleEl.textContent = "Unsaved Moves";
+                if (descEl)  descEl.textContent  = "You have moves on the analysis board that haven't been saved. Would you like to save before leaving?";
+            }
+            
             document.getElementById('nav-warning-overlay').style.display = 'flex';
         }
 
@@ -352,15 +372,24 @@
            CLICK-TO-MOVE MECHANICS
            ═══════════════════════════════════════════════════════ */
         function getSquareFromElement(el) {
-            var square = $(el).attr('data-square');
-            if (square) return square;
+            if (!el) return null;
+            var $el = $(el);
             
-            var classList = $(el).attr('class').split(/\s+/);
+            // 1. Check data-square attribute fallback
+            var sq = $el.attr('data-square') || $el.closest('[data-square]').attr('data-square');
+            if (sq) return sq;
+
+            // 2. Find the closest square container div
+            var $squareEl = $el.closest('div[class*="square-"]');
+            if (!$squareEl.length) return null;
+
+            var classList = $squareEl.attr('class').split(/\s+/);
             for (var i = 0; i < classList.length; i++) {
-                // Regex matches only clean coordinates (a1 through h8), ignoring auxiliary classes
-                var match = classList[i].match(/^square-([a-h][1-8])$/);
+                var c = classList[i];
+                // Regex matches standard coordinate classes (e.g. square-e4), ignoring standard hash classes
+                var match = c.match(/^square-([a-h][1-8])$/i);
                 if (match) {
-                    return match[1];
+                    return match[1].toLowerCase();
                 }
             }
             return null;
@@ -374,9 +403,10 @@
             
             // Query chess.js for legal moves from this square
             var moves = game.moves({ square: square, verbose: true });
+            console.log('Legal moves for ' + square + ':', moves);
+
             moves.forEach(function(m) {
                 var targetClass = `.square-${m.to}`;
-                // If it is a capture or there is a piece on the target square, use capture styles
                 if (m.flags.indexOf('c') !== -1 || game.get(m.to)) {
                     $(`#myBoard ${targetClass}`).addClass('highlight-legal-capture');
                 } else {
@@ -386,10 +416,13 @@
         }
 
         function removeHighlights() {
-            $(`#myBoard [data-square]`).removeClass('selected-square highlight-legal-move highlight-legal-capture');
+            // Safely clear highlights from all child div elements in the board
+            $(`#myBoard div`).removeClass('selected-square highlight-legal-move highlight-legal-capture');
         }
 
         function handleSquareClick(square) {
+            console.log('Square Click Triggered on:', square);
+
             // Respect locked board states in Play AI mode
             if (currentGameMode === 'play' && boardLocked) return;
             if (currentMoveIndex !== moveHistoryFens.length - 1) return;
@@ -459,8 +492,20 @@
            MODE SWITCHING
            ═══════════════════════════════════════════════════════ */
         function setMode(mode, element) {
+            var titleEl = document.getElementById('mode-warn-title');
+            var descEl  = document.getElementById('mode-warn-desc');
+            
             if (mode === 'play' && currentGameMode === 'analysis' && moveHistoryFens.length > 1) {
                 pendingModeElement = element;
+                if (titleEl) titleEl.textContent = "Unsaved Analysis";
+                if (descEl)  descEl.textContent  = "You have analysis moves on the board. Would you like to save them before switching to Play AI?";
+                openSaveWarningModal();
+                return;
+            }
+            if (mode === 'analysis' && currentGameMode === 'play' && moveHistoryFens.length > 1) {
+                pendingModeElement = element;
+                if (titleEl) titleEl.textContent = "Active Game in Progress";
+                if (descEl)  descEl.textContent  = "You are currently playing or have completed a game. Would you like to save it before switching to Analysis?";
                 openSaveWarningModal();
                 return;
             }
@@ -524,8 +569,22 @@
             var cachedElement = pendingModeElement;
             closeSaveWarningModal(event); // clears pendingModeElement
             
-            // Wipe out analysis board states completely if they selected not to save
+            // Wipe out board states completely if they selected not to save
             if (currentGameMode === 'analysis') {
+                game.reset();
+                board.start();
+                moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
+                currentMoveIndex = 0;
+                updateMoveList();
+                updateEvalBar(0);
+                $(`#myBoard [data-square]`).removeClass('highlight-check');
+                clearArrows();
+                removeHighlights();
+                selectedSquare = null;
+            } else if (currentGameMode === 'play') {
+                gameInProgress = false;
+                boardLocked = true;
+                setStartResignBtn('start');
                 game.reset();
                 board.start();
                 moveHistoryFens = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
@@ -539,7 +598,8 @@
             }
             
             if (cachedElement) {
-                applyMode('play', cachedElement);
+                var targetMode = cachedElement.textContent.trim().toLowerCase().includes('play') ? 'play' : 'analysis';
+                applyMode(targetMode, cachedElement);
             }
         }
 
