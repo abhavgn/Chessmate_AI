@@ -1055,6 +1055,9 @@
                 boardEl.appendChild(svg);
             }
             svg.innerHTML = '';
+            
+            // Apply group-level opacity so the intersecting shapes blend into a single flat layer
+            svg.setAttribute('opacity', '0.82'); 
 
             const angle      = Math.atan2(e.y - s.y, e.x - s.x);
             const headLen    = sqSize * 0.4;
@@ -1064,7 +1067,7 @@
             const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
             line.setAttribute('x1', s.x); line.setAttribute('y1', s.y);
             line.setAttribute('x2', lineEndX); line.setAttribute('y2', lineEndY);
-            line.setAttribute('stroke', 'rgba(50,200,50,0.55)');
+            line.setAttribute('stroke', '#2ecc71'); // Solid flat green (no transparent overlap)
             line.setAttribute('stroke-width', sqSize * 0.15);
             line.setAttribute('stroke-linecap', 'round');
             svg.appendChild(line);
@@ -1075,7 +1078,7 @@
                 `${e.x - headLen * Math.cos(angle - Math.PI / 6)},${e.y - headLen * Math.sin(angle - Math.PI / 6)}`,
                 `${e.x - headLen * Math.cos(angle + Math.PI / 6)},${e.y - headLen * Math.sin(angle + Math.PI / 6)}`
             ].join(' '));
-            head.setAttribute('fill', 'rgba(50,200,50,0.55)');
+            head.setAttribute('fill', '#2ecc71'); // Solid flat green (no transparent overlap)
             svg.appendChild(head);
         }
 
@@ -1199,18 +1202,53 @@
 
         /* ── Explain Move ───────────────────────────────────────── */
         document.getElementById('explain-btn').addEventListener('click', function() {
-            const historyAtView = game.history().slice(0, currentMoveIndex);
+            var historyAtView = game.history().slice(0, currentMoveIndex);
+            var explainFen = moveHistoryFens[currentMoveIndex];
+
+            // If in Play AI mode, force explanation of the student's last move, even if AI already moved
+            if (currentGameMode === 'play') {
+                var fullHistory = game.history();
+                var playerLastMoveIdx = -1;
+
+                if (currentPlayerColor === 'white') {
+                    // Find largest even index (White's moves)
+                    for (var i = fullHistory.length - 1; i >= 0; i--) {
+                        if (i % 2 === 0) {
+                            playerLastMoveIdx = i;
+                            break;
+                        }
+                    }
+                } else {
+                    // Find largest odd index (Black's moves)
+                    for (var i = fullHistory.length - 1; i >= 0; i--) {
+                        if (i % 2 !== 0) {
+                            playerLastMoveIdx = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (playerLastMoveIdx !== -1) {
+                    historyAtView = fullHistory.slice(0, playerLastMoveIdx + 1);
+                    explainFen = moveHistoryFens[playerLastMoveIdx + 1];
+                } else {
+                    appendChatMessage('bot', 'Make at least one move first!', true);
+                    return;
+                }
+            }
+
             if (historyAtView.length === 0) {
                 appendChatMessage('bot', 'Make at least one move first!', true);
                 return;
             }
+
             appendChatMessage('user', 'Can you explain my last move?');
             const loadingDiv = addLoadingBubble('Analyzing your move...');
 
             fetch('/explain_move', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: currentGameMode, fen: moveHistoryFens[currentMoveIndex], history: historyAtView })
+                body: JSON.stringify({ mode: currentGameMode, fen: explainFen, history: historyAtView })
             })
             .then(r => r.json())
             .then(data => {

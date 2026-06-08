@@ -2386,8 +2386,9 @@ html.lenis, html.lenis body { height: auto; }
     }
 
     #myBoard {
-        width: min(500px, 100vw - 56px) !important;
-        height: min(500px, 100vw - 56px) !important;
+        width: var(--board-size) !important;
+        height: var(--board-size) !important;
+        position: relative; /* Anchor for absolute SVG arrow elements to prevent alignment shifting */
     }
 
     #eval-bar-container { height: min(500px, 100vw - 56px); }

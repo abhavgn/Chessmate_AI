@@ -45,7 +45,8 @@ system_instruction = (
     1. Use the provided DATA literally. Only describe the position or move using the pieces and squares shown.
     2. If explaining a move, verify piece identities and square occupants strictly from the 'CURRENT PIECE LOCATIONS' list or ASCII grid.
     3. Do not mention engine evaluations, centipawns, or speculative alternative moves unless provided.
-    4. Answer concisely in 1 to 3 sentences. No bullet lists. No headers. No fluff.
+    4. GEOMETRIC ACCURACY: Never claim a piece protects, supports, or defends another friendly piece unless you are 100% mathematically sure of the coordinate geometry. Specifically, a Knight on f3 can NEVER defend a friendly pawn on e4 or e2. If discussing a developed knight on f3, focus strictly on "controlling central squares (d4, e5)" and "preparing to castle kingside."
+    5. Answer concisely in 1 to 3 sentences. No bullet lists. No headers. No fluff.
     """
 )
 
@@ -879,17 +880,19 @@ def best_move():
             san_move = temp_board.san(best_move_obj)
             
             # Analyze the continuation for the prompt
-            info = engine.analyse(temp_board, chess.engine.Limit(time=0.5), multipv=1)
+            info = engine.analyse(temp_board, chess.engine.Limit(time=0.5))
             pv = info.get("pv", [best_move_obj])
             
-            # Helper for accurate continuation string
+            # Replay the recommended move on our test board so the continuation starts AFTER it
             test_b = temp_board.copy()
+            test_b.push(best_move_obj) # Execute the recommended move first (turn switches to opponent)
+            
             pv_san = []
-            for m in pv[:4]:
+            for m in pv[1:5]: # Slice from index 1 to 5 to get the actual replies and follow-ups
                 label = "White" if test_b.turn == chess.WHITE else "Black"
                 pv_san.append(f"{label} plays {test_b.san(m)}")
                 test_b.push(m)
-            expected_line_list = "\n".join([f"- {m}" for m in pv_san])
+            expected_line_list = "\n".join([f"- {m}" for m in pv_san]) if pv_san else "None"
 
         # 3. GATHER DATA FOR LLM
         material_status = get_material_score(temp_board)
@@ -906,7 +909,8 @@ SQUARE OF DESTINATION: {chess.square_name(best_move_obj.to_square)}
 PIECE MOVING: {moving_piece_name}
 MATERIAL STATUS: {material_status}
 TACTICAL CONTEXT: {tactical_facts}
-EXPECTED CONTINUATION: {expected_line_list}
+EXPECTED CONTINUATION (after recommended move is played):
+{expected_line_list}
 CURRENT PIECE LOCATIONS: {piece_positions}
 </ground_truth>
 
@@ -1371,8 +1375,8 @@ def ask_coach():
         "Do NOT explicitly mention these stages in your output.\n\n"
         "---\n\n"
         "=== CRITICAL GROUNDING RULES (HIGH PRIORITY) ===\n\n"
-        "1. GROUND TRUTH FIRST:\n"
-        "   Refer primarily to pieces, coordinates, and moves explicitly listed under \"CURRENT PIECE LOCATIONS\" or provided context. If a square is not listed as occupied, treat it as empty. Do not invent pieces or alter the given position.\n\n"
+        "1. GROUND TRUTH FIRST (MANDATORY):\n"
+        "   You must check the 'CURRENT PIECE LOCATIONS' list before mentioning any piece or its coordinate. If a piece is not explicitly listed at a specific coordinate, you are strictly forbidden from claiming that piece exists on that coordinate. For example, if there is a 'Black Pawn on e6' and a 'White Pawn on e4', you must never claim there is a pawn on e5. Any statement asserting a piece occupies an empty square is a critical failure.\n\n"
         "2. CONTROLLED REASONING:\n"
         "   You may include short illustrative variations (1–2 moves max) ONLY if they directly clarify a tactical or strategic idea. Do not generate deep or speculative lines.\n\n"
         "3. ILLEGAL MOVE HANDLING:\n"
@@ -1380,9 +1384,11 @@ def ask_coach():
         "   \"That move is illegal.\"\n"
         "   Then explain the exact geometric reason using ONLY provided piece locations.\n\n"
         "4. COORDINATE DISCIPLINE:\n"
-        "   Do not introduce specific squares unless they are present in the provided board data, or are the legitimate destination squares of legal moves described in your short variations. You may refer to general concepts like \"center\", \"kingside\", or \"dark squares\" when appropriate.\n\n"
+        "   Do not introduce specific squares unless they are present in the provided board data, or are the legitimate destination squares of legal moves described in your short variations. Never claim an empty square currently contains a piece. You may refer to general concepts like \"center\", \"kingside\", or \"dark squares\" when appropriate.\n\n"
         "5. NO ENGINE NUMBERS:\n"
         "   Never mention centipawns, eval scores, or mate distances. Use qualitative terms like \"slight inaccuracy\", \"serious mistake\", or \"losing position\".\n\n"
+        "6. COLOR & PIECE COHERENCE:\n"
+        "   Check piece colors and orientations carefully. White pieces and Black pieces are enemies. A Black pawn on e6 can never protect, support, or defend an opposing White pawn on e4. Always identify which side played the move and describe its relationship to opposing pieces accurately.\n\n"
         "---\n\n"
         "=== STAGE 1: VALIDATION (INTERNAL ONLY) ===\n\n"
         "* Determine if the move is legal based strictly on piece movement and board geometry.\n\n"
