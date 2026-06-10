@@ -11,39 +11,37 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
     <script src="https://unpkg.com/lenis@1.1.14/dist/lenis.min.js"></script>
     <style>
-        /* ── CLICK-TO-MOVE STYLING ── */
+        /* ── CLICK-TO-MOVE STYLING (PHYSICAL DOM OVERLAYS) ── */
         .selected-square {
             background-color: rgba(201, 162, 39, 0.35) !important;
-            box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.7);
+            box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.7) !important;
         }
-        .highlight-legal-move {
-            position: relative;
+        
+        /* High-visibility physical center dot (Lichess/Chess.com style) */
+        .legal-move-dot {
+            position: absolute !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            width: 18px !important;
+            height: 18px !important;
+            background-color: rgba(201, 162, 39, 0.65) !important; /* Elegant gold dot */
+            border-radius: 50% !important;
+            pointer-events: none !important;
+            z-index: 9999 !important; /* Guarantees rendering on top of everything */
+            display: block !important;
         }
-        .highlight-legal-move::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: min(18px, 20%);
-            aspect-ratio: 1;
-            background-color: rgba(201, 162, 39, 0.55);
-            border-radius: 50%;
-            pointer-events: none;
-            z-index: 10;
-        }
-        .highlight-legal-capture {
-            position: relative;
-        }
-        .highlight-legal-capture::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border: 4px solid rgba(192, 57, 43, 0.7);
-            border-radius: var(--r-sm);
-            background-color: rgba(192, 57, 43, 0.08);
-            pointer-events: none;
-            z-index: 10;
+
+        /* High-visibility boundary ring for capturing opponent pieces */
+        .legal-capture-ring {
+            position: absolute !important;
+            inset: 0 !important;
+            border: 4px solid rgba(192, 57, 43, 0.75) !important; /* Thick red ring */
+            background-color: rgba(192, 57, 43, 0.08) !important;
+            border-radius: var(--r-sm) !important;
+            pointer-events: none !important;
+            z-index: 9999 !important;
+            display: block !important;
         }
     </style>
 </head>
@@ -185,13 +183,15 @@
             <!-- Move history -->
             <div class="move-history-wrapper">
                 <div class="move-history-header">📜 Move History</div>
-                <div id="move-list" class="move-grid"></div>
+                <!-- Added data-lenis-prevent to restore scrollbar behavior -->
+                <div id="move-list" class="move-grid" data-lenis-prevent></div>
             </div>
 
             <!-- Chat -->
             <div class="chat-wrapper">
                 <div class="chat-header">🤖 AI Coach Chat</div>
-                <div id="chat-history">
+                <!-- Added data-lenis-prevent to restore scrollbar behavior -->
+                <div id="chat-history" data-lenis-prevent>
                     <div class="msg bot" style="padding:10px;border-radius:8px;margin-bottom:8px;font-size:0.9rem;background:#f1f5f9;color:#334155;">
                         Hello! I'm your chess coach. Make a move, ask me anything, or load a PGN to get started.
                     </div>
@@ -331,12 +331,9 @@
                 _pendingNavHref = null;
             });
 
-            // Bind click-to-move listener to chessboard squares and piece assets
-            $('#myBoard').on('click touchend', function(e) {
-                // Prevents double-taps on mobile devices
-                if (e.type === 'click' && window.ontouchstart !== undefined) return;
-                
-                var square = getSquareFromElement(e.target);
+            // Bind geometric coordinate click-to-move listener
+            $('#myBoard').on('click', function(e) {
+                var square = getSquareFromCoords(e);
                 if (square) {
                     handleSquareClick(square);
                 }
@@ -369,37 +366,65 @@
 
 
         /* ═══════════════════════════════════════════════════════
-           CLICK-TO-MOVE MECHANICS
+           CLICK-TO-MOVE MECHANICS (GEOMETRIC MAP)
            ═══════════════════════════════════════════════════════ */
-        function getSquareFromElement(el) {
-            if (!el) return null;
-            var $el = $(el);
+        function getSquareFromCoords(e) {
+            // Target the actual inner chessboard container rendered by chessboard.js
+            var boardContainer = $('#myBoard').find('div[class*="board-"]').first()[0] || document.getElementById('myBoard');
+            if (!boardContainer) return null;
+
+            var rect = boardContainer.getBoundingClientRect();
             
-            // 1. Check data-square attribute fallback
-            var sq = $el.attr('data-square') || $el.closest('[data-square]').attr('data-square');
-            if (sq) return sq;
-
-            // 2. Find the closest square container div
-            var $squareEl = $el.closest('div[class*="square-"]');
-            if (!$squareEl.length) return null;
-
-            var classList = $squareEl.attr('class').split(/\s+/);
-            for (var i = 0; i < classList.length; i++) {
-                var c = classList[i];
-                // Regex matches standard coordinate classes (e.g. square-e4), ignoring standard hash classes
-                var match = c.match(/^square-([a-h][1-8])$/i);
-                if (match) {
-                    return match[1].toLowerCase();
-                }
+            // Support both mouse clicks and touch/tap events
+            var clientX = e.clientX;
+            var clientY = e.clientY;
+            if (e.originalEvent && e.originalEvent.touches && e.originalEvent.touches.length > 0) {
+                clientX = e.originalEvent.touches[0].clientX;
+                clientY = e.originalEvent.touches[0].clientY;
+            } else if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
             }
-            return null;
+
+            var x = clientX - rect.left;
+            var y = clientY - rect.top;
+
+            // Out of bounds check
+            if (x < 0 || x > rect.width || y < 0 || y > rect.height) {
+                return null;
+            }
+
+            var sqSizeX = rect.width / 8;
+            var sqSizeY = rect.height / 8;
+
+            var fileIndex = Math.floor(x / sqSizeX);
+            var rankIndex = Math.floor(y / sqSizeY);
+
+            // Handle flipped board orientation (Black's perspective)
+            var isFlipped = board.orientation() === 'black';
+            if (isFlipped) {
+                fileIndex = 7 - fileIndex;
+                rankIndex = 7 - rankIndex;
+            }
+
+            var file = String.fromCharCode(97 + fileIndex);
+            var rank = 8 - rankIndex;
+
+            return file + rank;
+        }
+
+        function removeHighlights() {
+            // 1. Remove background highlights from all board divs
+            $(`#myBoard div`).removeClass('selected-square highlight-legal-move highlight-legal-capture');
+            // 2. Physically delete all legal dots and capture rings from the board
+            $(`#myBoard`).find('.legal-move-dot, .legal-capture-ring').remove();
         }
 
         function highlightLegalMoves(square) {
             removeHighlights();
             
-            // Highlight the selected piece's square
-            $(`#myBoard .square-${square}`).addClass('selected-square');
+            // Highlight the selected square
+            $(`#myBoard`).find(`.square-${square}`).addClass('selected-square');
             
             // Query chess.js for legal moves from this square
             var moves = game.moves({ square: square, verbose: true });
@@ -407,18 +432,19 @@
 
             moves.forEach(function(m) {
                 var targetClass = `.square-${m.to}`;
+                var $targetSquare = $(`#myBoard`).find(targetClass);
+
                 if (m.flags.indexOf('c') !== -1 || game.get(m.to)) {
-                    $(`#myBoard ${targetClass}`).addClass('highlight-legal-capture');
+                    // Physical Red Capture Ring
+                    $targetSquare.append('<div class="legal-capture-ring"></div>');
                 } else {
-                    $(`#myBoard ${targetClass}`).addClass('highlight-legal-move');
+                    // Physical Gold Center Dot
+                    $targetSquare.append('<div class="legal-move-dot"></div>');
                 }
             });
         }
 
-        function removeHighlights() {
-            // Safely clear highlights from all child div elements in the board
-            $(`#myBoard div`).removeClass('selected-square highlight-legal-move highlight-legal-capture');
-        }
+
 
         function handleSquareClick(square) {
             console.log('Square Click Triggered on:', square);
@@ -429,8 +455,23 @@
             if (currentGameMode === 'play' && game.game_over()) return;
 
             var piece = game.get(square);
+            var playerColorChar = (currentPlayerColor === 'white') ? 'w' : 'b';
+
+            // 1. Strictly forbid selecting opponent pieces as a starting selection
+            if (!selectedSquare) {
+                if (piece && piece.color !== playerColorChar) {
+                    return; 
+                }
+            }
 
             if (selectedSquare) {
+                // 2. Deselection on Re-Click (Double-check safety fallback)
+                if (selectedSquare === square) {
+                    removeHighlights();
+                    selectedSquare = null;
+                    return;
+                }
+
                 // Get legal moves for the selected piece
                 var moves = game.moves({ square: selectedSquare, verbose: true });
                 var isLegal = moves.some(function(m) { return m.to === square; });
@@ -442,38 +483,88 @@
                         pendingMove = { from: selectedSquare, to: square };
                         document.getElementById('promotion-overlay').style.display = 'flex';
                     } else {
-                        sendMoveToServer(selectedSquare + square, selectedSquare, square);
+                        // Capture the state FEN before executing the optimistic update
+                        var preMoveFen = game.fen();
+
+                        // 3. Optimistic UI Update (Instant 0ms Glide)
+                        game.move({ from: selectedSquare, to: square, promotion: 'q' });
+                        board.position(game.fen());
+
+                        // Send to server to sync, passing the cached pre-move FEN
+                        sendMoveToServer(selectedSquare + square, selectedSquare, square, true, preMoveFen);
                     }
                     removeHighlights();
                     selectedSquare = null;
                 } else {
-                    // Clicked an invalid square; check if we can switch selection to a different player piece
+                    // Clicked an invalid square. If it's another friendly piece, let onDragStart handle it.
+                    // If it's an opponent piece or empty space, deselect:
                     if (piece && piece.color === game.turn()) {
-                        if (currentGameMode === 'play' && piece.color !== (currentPlayerColor === 'white' ? 'w' : 'b')) {
-                            removeHighlights();
-                            selectedSquare = null;
-                            return;
-                        }
-                        selectedSquare = square;
-                        highlightLegalMoves(square);
+                        return; // Allow dragging handler to manage friendly-to-friendly selection swaps
                     } else {
-                        // Clicked empty space or opponent piece; clear selection
                         removeHighlights();
                         selectedSquare = null;
                     }
                 }
             } else {
-                // Select a piece if no prior selection exists
-                if (piece && piece.color === game.turn()) {
-                    if (currentGameMode === 'play' && piece.color !== (currentPlayerColor === 'white' ? 'w' : 'b')) {
-                        return;
-                    }
-                    selectedSquare = square;
-                    highlightLegalMoves(square);
+                // If no selection exists, let onDragStart manage the initial mousedown selections
+                return;
+            }
+        }
+
+
+        function onDragStart(source, piece, position, orientation) {
+            // Prevent dragging if the game is not ready
+            if (!pgnLoadComplete) return false;
+            if (currentGameMode === 'play' && boardLocked) return false;
+            if (currentMoveIndex !== moveHistoryFens.length - 1) return false;
+            if (currentGameMode === 'play' && game.game_over()) return false;
+
+            // 1. INFINITE TOGGLE: If they click the already selected piece, deselect it (toggle off)
+            if (selectedSquare === source) {
+                removeHighlights();
+                selectedSquare = null;
+                return false; // Prevent standard drag initiate
+            }
+
+            // 2. INTERCEPT CAPTURES: If a piece is selected and the target is a legal capture
+            if (selectedSquare) {
+                var moves = game.moves({ square: selectedSquare, verbose: true });
+                var isLegal = moves.some(function(m) { return m.to === source; });
+                
+                if (isLegal) {
+                    // Execute capture instantly and abort standard dragging on the target piece
+                    handleSquareClick(source);
+                    return false; 
                 }
+            }
+
+            // 3. STRICTOR TURN LOCKS: Only allow dragging player pieces during their turn in Play AI mode
+            if (currentGameMode === 'play') {
+                var engineColor = (currentPlayerColor === 'white') ? 'b' : 'w';
+                if (game.turn() === engineColor) return false;
+                
+                var playerColorChar = (currentPlayerColor === 'white') ? 'w' : 'b';
+                if (piece.charAt(0) !== playerColorChar) return false; // Prevent picking up opponent pieces
+            }
+            
+            // Otherwise, set selection state and highlight (toggle on)
+            selectedSquare = source;
+            highlightLegalMoves(source);
+            return true;
+        }
+
+        function onSnapbackEnd(piece, square, position, orientation) {
+            // If we have an active selection, restore the highlights after chessboard.js finishes its redraw
+            if (selectedSquare) {
+                setTimeout(function() {
+                    highlightLegalMoves(selectedSquare);
+                }, 50);
             }
         }
         
+        /* ═══════════════════════════════════════════════════════
+           BOARD INIT
+           ═══════════════════════════════════════════════════════ */
         /* ═══════════════════════════════════════════════════════
            BOARD INIT
            ═══════════════════════════════════════════════════════ */
@@ -481,6 +572,8 @@
             draggable: true,
             position: 'start',
             onDrop: onDrop,
+            onDragStart: onDragStart,       // Hook to capture selections immediately
+            onSnapbackEnd: onSnapbackEnd,   // Hook to restore highlights after DOM redraw
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         };
         board = Chessboard('myBoard', config);
@@ -772,45 +865,78 @@
                 return;
             }
             sendMoveToServer(source + target, source, target);
-            removeHighlights();
-            selectedSquare = null;
+            removeHighlights(); // <-- Add this to clear overlays
+            selectedSquare = null; // <-- Add this to reset selection state
         }
 
-        function sendMoveToServer(moveText, source, target) {
+        function sendMoveToServer(moveText, source, target, optimistic, preMoveFen) {
             clearArrows();
+            removeHighlights();
+            selectedSquare = null;
+
+            // Instantly lock the board during the network transit and opponent's turn
+            if (currentGameMode === 'play') {
+                boardLocked = true;
+            }
+
+            // For optimistic updates, validate using the state FEN from before the move
+            var fenToValidate = preMoveFen || game.fen();
+
             fetch('/move', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ move: moveText, fen: game.fen() })
+                body: JSON.stringify({ move: moveText, fen: fenToValidate })
             })
             .then(r => r.json())
             .then(data => {
                 if (data.status === 'success') {
-                    board.position(data.fen);
-                    const promoChar = moveText.length === 5 ? moveText[4] : 'q';
-                    game.move({ from: source, to: target, promotion: promoChar });
-                    moveHistoryFens.push(game.fen());
+                    if (!optimistic) {
+                        // For traditional drag-and-drops, execute move on standard callback
+                        const promoChar = moveText.length === 5 ? moveText[4] : 'q';
+                        game.move({ from: source, to: target, promotion: promoChar });
+                        board.position(data.fen);
+                    }
+                    
+                    moveHistoryFens.push(data.fen);
                     currentMoveIndex = moveHistoryFens.length - 1;
                     highlightCurrentMove();
                     updateMoveList();
                     updateCheckHighlight();
                     checkGameOver();
+                    
                     if (resignConfirmPending) {
                         resignConfirmPending = false;
                         const btn = document.getElementById('start-resign-btn');
                         if (btn) { btn.textContent = '🏳 Resign'; btn.style.background = ''; }
                     }
+                    
                     if (currentGameMode === 'analysis') updateEvalBar(data.evaluation);
                     if (currentGameMode === 'play') {
-                        const engineColor = (currentPlayerColor === 'white' ? 'b' : 'w');
-                        if (game.turn() === engineColor) setTimeout(makeEngineMove, 250);
+                        const engineColor = (currentPlayerColor === 'white') ? 'b' : 'w';
+                        if (game.turn() === engineColor) {
+                            setTimeout(makeEngineMove, 250);
+                        } else {
+                            boardLocked = false; // Unlock if it remains player's turn
+                        }
                     }
                 } else {
-                    board.position(game.fen());
-                    return 'snapback';
+                    // Safe roll-back state machine if sync fails
+                    if (optimistic) {
+                        game.undo();
+                        board.position(game.fen());
+                    } else {
+                        board.position(game.fen());
+                    }
+                    boardLocked = false;
                 }
             })
-            .catch(() => {});
+            .catch(() => {
+                if (optimistic) {
+                    game.undo();
+                    board.position(game.fen());
+                }
+                boardLocked = false;
+            });
         }
 
         function choosePromotion(pieceType) {
@@ -858,13 +984,19 @@
                     highlightCurrentMove();
                     updateMoveList();
                     updateCheckHighlight();
+                    
                     if (!game.game_over() && currentGameMode === 'play' && autoHintMode) {
                         requestAutoHint();
                     }
                     checkGameOver();
+                    
+                    // Unlock the board for the student's turn
+                    boardLocked = false; 
                 }
             })
-            .catch(() => {});
+            .catch(() => {
+                boardLocked = false;
+            });
         }
 
         function requestAutoHint() {
@@ -1049,7 +1181,8 @@
             if (!svg) {
                 svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 svg.id = 'arrow-svg';
-                svg.setAttribute('style', 'position:absolute;top:0;left:0;pointer-events:none;z-index:10;');
+                // Updated inline z-index to 10000
+                svg.setAttribute('style', 'position:absolute;top:0;left:0;pointer-events:none;z-index:10000;');
                 svg.setAttribute('width', rect.width);
                 svg.setAttribute('height', rect.height);
                 boardEl.appendChild(svg);
@@ -1399,6 +1532,21 @@
             })
             .catch(() => { appendChatMessage('bot', 'Takeback failed. Try again.', true); });
         }
+
+        // Bind click listener to individual move history boxes
+        $('#move-list').on('click', '.move-val', function() {
+            var index = parseInt($(this).attr('data-index'));
+            
+            // Boundaries verification against history limits
+            if (!isNaN(index) && index >= 0 && index < moveHistoryFens.length) {
+                currentMoveIndex = index;
+                
+                // Update board and sync positions
+                board.position(moveHistoryFens[currentMoveIndex]);
+                highlightCurrentMove();
+                syncPositionWithBackend();
+            }
+        });
 
         /* ═══════════════════════════════════════════════════════
            PGN MODAL

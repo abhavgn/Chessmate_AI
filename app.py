@@ -71,6 +71,23 @@ def get_engine_path():
         candidate = resource_path(os.path.join("engines", "stockfish"))
     return candidate
 
+@app.route('/delete_game', methods=['POST'])
+def delete_game():
+    data = request.json or {}
+    game_id = data.get('id')
+    if not game_id:
+        return jsonify({"status": "error", "message": "No game ID provided."}), 400
+        
+    saved_games = load_saved_games()
+    # Filter out the game with the matching ID
+    updated_games = [g for g in saved_games if g.get('id') != game_id]
+    
+    if len(updated_games) == len(saved_games):
+        return jsonify({"status": "error", "message": "Game not found."}), 404
+        
+    save_saved_games(updated_games)
+    return jsonify({"status": "success", "message": "Game deleted successfully."})
+
 engine_path = get_engine_path()
 
 saved_games_file = resource_path('saved_games.json')

@@ -9,6 +9,7 @@
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="https://unpkg.com/lenis@1.1.14/dist/lenis.min.js"></script>
 </head>
 <body class="home-body">
     <header class="site-header home-header">
@@ -23,6 +24,7 @@
             <a href="/saved_games" class="nav-link active">Saved Games</a>
         </nav>
     </header>
+    
     <div class="home-shell howto-shell">
         <header class="hero-panel minimal">
             <div class="hero-badge">Saved Games</div>
@@ -37,13 +39,16 @@
         <section class="howto-list saved-list">
             {% if saved_games %}
                 {% for game in saved_games %}
-                    <div class="saved-card">
+                    <div class="saved-card" id="card-{{ game.id }}">
                         <div class="saved-card-header">
                             <div>
                                 <h2>{{ game.title }}</h2>
                                 <p class="saved-meta">Saved on {{ game.created_at.replace('T',' ').replace('Z','') }} · {{ game.move_count }} moves · {{ game.game_mode.capitalize() }}</p>
                             </div>
-                            <a href="/play?load_game={{ game.id }}" class="hero-btn secondary">Load</a>
+                            <div style="display: flex; gap: 8px;">
+                                <a href="/play?load_game={{ game.id }}" class="hero-btn secondary" style="min-width: auto; padding: 10px 20px;">Load</a>
+                                <button class="hero-btn danger delete-game-btn" data-id="{{ game.id }}" style="min-width: auto; padding: 10px 20px; font-family: var(--font-display); font-weight: 600; font-size: 0.74rem; letter-spacing: 0.10em; text-transform: uppercase; border-radius: var(--r-md); cursor: pointer; border: none;">Delete</button>
+                            </div>
                         </div>
                         <div class="saved-mini-board" data-fen="{{ game.fen }}"></div>
                         {% if game.note %}
@@ -58,8 +63,22 @@
             {% endif %}
         </section>
     </div>
+
+    <!-- ── CUSTOM WEBPAGE UI DELETE WARNING MODAL ─────────────────────────── -->
+    <div id="delete-warning-overlay" class="save-warning-overlay">
+        <div class="save-warning-box">
+            <h3 style="color: var(--text-primary); font-family: var(--font-display); font-size: 1.4rem; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.05em;">Delete Saved Game?</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 28px; font-style: italic; font-size: 0.95rem; line-height: 1.6;">Are you sure you want to permanently delete this saved chess session? This action cannot be undone.</p>
+            <div class="save-warning-actions" style="display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
+                <button class="action-btn danger" id="confirm-delete-btn" style="min-width: 140px;">Delete permanently</button>
+                <button class="action-btn secondary" id="cancel-delete-btn" style="min-width: 140px;">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Render the static saved boards
             document.querySelectorAll('.saved-mini-board').forEach(function(boardContainer) {
                 const fen = boardContainer.getAttribute('data-fen') || 'start';
                 const miniBoard = Chessboard(boardContainer, {
@@ -72,22 +91,93 @@
                     appearSpeed: 0
                 });
             });
-        });
-        document.addEventListener('DOMContentLoaded', () => {
-            document.querySelectorAll('.nav-guard').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    if (typeof hasUnsavedMoves === 'function' && hasUnsavedMoves()) {
-                        e.preventDefault();
-                        _pendingNavHref = link.getAttribute('href');
-                        openNavWarningModal();
+
+            // State variables for tracking the deletion target
+            let pendingDeleteId = null;
+            let pendingDeleteBtn = null;
+
+            const deleteOverlay = document.getElementById('delete-warning-overlay');
+            const confirmBtn    = document.getElementById('confirm-delete-btn');
+            const cancelBtn     = document.getElementById('cancel-delete-btn');
+
+            // 1. Initial click on any card Delete button
+            document.querySelectorAll('.delete-game-btn').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    pendingDeleteId = this.getAttribute('data-id');
+                    pendingDeleteBtn = this;
+                    
+                    if (pendingDeleteId && deleteOverlay) {
+                        // Open the custom Webpage UI modal smoothly
+                        deleteOverlay.style.display = 'flex';
                     }
                 });
             });
+
+            // 2. Click "Cancel" inside the custom modal
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', function() {
+                    if (deleteOverlay) {
+                        deleteOverlay.style.display = 'none';
+                    }
+                    pendingDeleteId = null;
+                    pendingDeleteBtn = null;
+                });
+            }
+
+            // 3. Click "Delete Permanently" inside the custom modal
+            if (confirmBtn) {
+                confirmBtn.addEventListener('click', function() {
+                    if (!pendingDeleteId) return;
+
+                    // Close the modal immediately
+                    if (deleteOverlay) {
+                        deleteOverlay.style.display = 'none';
+                    }
+
+                    fetch('/delete_game', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: pendingDeleteId })
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // Dynamic fade and contraction transition
+                            const card = pendingDeleteBtn.closest('.saved-card');
+                            if (card) {
+                                card.style.opacity = '0';
+                                card.style.transform = 'scale(0.96)';
+                                card.style.transition = 'all 0.4s cubic-bezier(0.25, 1, 0.5, 1)';
+                                setTimeout(() => {
+                                    card.remove();
+                                    // Reload to trigger default empty card if all items are cleared
+                                    if (document.querySelectorAll('.saved-card').length === 0) {
+                                        location.reload();
+                                    }
+                                }, 400);
+                            }
+                        } else {
+                            alert('Error: ' + data.message);
+                        }
+                        
+                        // Reset tracking states
+                        pendingDeleteId = null;
+                        pendingDeleteBtn = null;
+                    })
+                    .catch(() => {
+                        alert('Failed to connect to the server. Please try again.');
+                        pendingDeleteId = null;
+                        pendingDeleteBtn = null;
+                    });
+                });
+            }
         });
     </script>
+
+    <!-- Lenis smooth scrolling -->
     <script>
         (function() {
-            // Inject necessary Lenis helper CSS dynamically to prevent viewport jitter
             const style = document.createElement('style');
             style.textContent = `
                 html.lenis, html.lenis body { height: auto !important; }
@@ -119,7 +209,6 @@
                 requestAnimationFrame(raf);
             }
 
-            // Load the CDN script dynamically if it hasn't been fetched yet
             if (typeof Lenis === 'undefined') {
                 const script = document.createElement('script');
                 script.src = "https://unpkg.com/lenis@1.1.14/dist/lenis.min.js";

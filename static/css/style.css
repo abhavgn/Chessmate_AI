@@ -1344,7 +1344,9 @@ html.lenis, html.lenis body { height: auto; }
    ═══════════════════════════════════════════════════════════ */
 
 #myBoard { position: relative; }
-#arrow-svg { z-index: 10; }
+#arrow-svg {
+    z-index: 10000 !important; /* Elevated above 9999 to overlay on top of capture rings and piece layers */
+}
 
 /* ═══════════════════════════════════════════════════════════
    MODALS
