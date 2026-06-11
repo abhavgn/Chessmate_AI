@@ -2574,3 +2574,8 @@ html.lenis, html.lenis body { height: auto; }
     pointer-events: none;
     z-index: 10;
 }
+
+/* Automatically narrows the board container when the evaluation bar is hidden */
+#board-side.mode-play {
+    width: var(--board-size) !important;
+}

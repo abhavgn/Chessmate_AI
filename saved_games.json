@@ -1,12 +1,12 @@
 [
   {
-    "id": "1781037221845",
+    "id": "1781212602582",
     "title": "My Chessmate Game",
-    "created_at": "2026-06-09T20:33:41.845678Z",
+    "created_at": "2026-06-11T21:16:42.583822Z",
     "game_mode": "analysis",
-    "note": "sdsds",
-    "pgn": "1. f3 e5 2. e4 f5 3. exf5 g6 4. fxg6",
-    "fen": "rnbqkbnr/pppp3p/6P1/4p3/8/5P2/PPPP2PP/RNBQKBNR b KQkq - 0 4",
-    "move_count": 7
+    "note": "yay",
+    "pgn": "1. e4 e5 2. f4 f6 3. fxe5 fxe5 4. Qh5+ Ke7 5. Qxe5+ Kf7 6. Bc4+ d5 7. Bxd5+ Kg6 8. Qg3+ Kh6 9. d4+ Kh5 10. Bf7+ g6 11. Qe5+ Kg4 12. h3+ Kh4 13. g3#",
+    "fen": "rnbq1bnr/ppp2B1p/6p1/4Q3/3PP2k/6PP/PPP5/RNB1K1NR b KQ - 0 13",
+    "move_count": 25
   }
 ]

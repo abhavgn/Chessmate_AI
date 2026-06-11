@@ -1268,7 +1268,8 @@ def ask_coach():
     engine_continuation = []
     try:
         with chess.engine.SimpleEngine.popen_uci(engine_path) as engine:
-            info = engine.analyse(temp_board, chess.engine.Limit(time=0.5))
+            # Optimized engine analysis limit to 0.12s to make automated hint generation significantly faster
+            info = engine.analyse(temp_board, chess.engine.Limit(time=0.12))
             if "pv" in info and info["pv"]:
                 engine_best = temp_board.san(info["pv"][0])
                 test_b = temp_board.copy()
@@ -1443,6 +1444,19 @@ def ask_coach():
         "=== GOAL ===\n\n"
         "Your goal is to help the player improve their understanding of chess by explaining moves clearly, accurately, and insightfully while remaining fully grounded in the provided position."
     )
+
+    # Dynamic Interceptor: Appends the Socratic hint overlay ONLY if it is an automated coach hint
+    is_auto_hint = "subtle, tactical, or positional hint" in user_question or "Auto-hint" in user_question
+    if is_auto_hint:
+        coach_system_prompt += (
+            "\n\n=== SPECIAL RULE: AUTO-HINT SYSTEM ===\n"
+            "This is an automated hint for the player. "
+            "You MUST NOT name any specific piece (e.g., Bishop, Rook, Knight, e4, d5, etc.) or destination coordinate. "
+            "You must NOT tell them what move to make. "
+            "Instead, write exactly ONE or TWO engaging, Socratic, guiding questions that prompt the player to look at a specific concept or region of the board.\n"
+            "Example style: 'Is there a way to open up diagonals for your light-squared bishop?' or 'Look at the pawn tension in the center; is there a push that gains space?'\n"
+            "Your output must be a question, not an instruction."
+        )
 
     try:
         messages = [{"role": "system", "content": coach_system_prompt}]

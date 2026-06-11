@@ -146,9 +146,15 @@
             </div>
 
             <!-- Coach hint toggle -->
-            <div class="hint-control-row">
-                <button id="hint-mode-btn" class="action-btn hint-mode-btn active" onclick="toggleAutoHint()">Coach Hints: On</button>
-                <span class="hint-help-text">Auto-hints fire after each opponent move in Play AI mode.</span>
+            <div class="hint-control-row" style="display: flex; flex-direction: column; gap: 6px; width: 100%;">
+                <div style="display: flex; gap: 8px; align-items: center; justify-content: space-between; width: 100%;">
+                    <button id="hint-mode-btn" class="action-btn hint-mode-btn active" onclick="toggleAutoHint()" style="margin: 0; min-width: auto; flex: 1;" title="Toggle automatic Socratic hints in the chat after every opponent move.">Auto-Hints: On</button>
+                    <button id="get-hint-btn" class="action-btn hint-mode-btn" onclick="requestManualHint()" style="margin: 0; min-width: auto; flex: 1; background: rgba(201,162,39,0.08); color: var(--gold-bright); border-color: var(--border-dim);" title="Request a custom, non-revealing Socratic hint from the coach on demand.">💡 Get Hint</button>
+                </div>
+                <!-- Shared subtitle explaining the hint configuration -->
+                <span style="font-size: 0.65rem; color: var(--text-muted); font-style: italic; line-height: 1.2; text-align: center; width: 100%;">
+                    Auto-hints play after every move · Get Hint works on-demand
+                </span>
             </div>
 
             <!-- ELO / Color / Start (Play AI) -->
@@ -766,6 +772,7 @@
             element.classList.add('active');
         }
 
+        // Modified setColor so that it correctly updates classes & updates text dynamically for Flip Board
         function setColor(color, element) {
             playerColor = color;
             document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
@@ -999,18 +1006,36 @@
             });
         }
 
-        function requestAutoHint() {
-            if (game.game_over() || !autoHintMode) return;
+        function requestAutoHint(force) {
+            // If the game is already over, do not calculate hints
+            if (game.game_over()) return;
+            // If auto-hints is turned off, only allow if triggered manually via the button
+            if (!autoHintMode && !force) return;
+
             const historyAtView = game.history().slice(0, currentMoveIndex + 1);
             const tempGame = new Chess();
             historyAtView.forEach(m => tempGame.move(m));
             const pgnAtView = tempGame.pgn();
 
+            // Calculate the dynamic coaching perspective based on mode and active turn
+            var perspective = "how can White"; 
+            if (currentGameMode === 'play') {
+                perspective = "how can you";
+            } else {
+                perspective = (game.turn() === 'w') ? "how can White" : "how can Black";
+            }
+
+            // Construct the dynamic, Socratic instruction
+            var dynamicQuestion = 'Provide a subtle, tactical, or positional hint for the next move, phrased around "' + perspective + '...". DO NOT name any specific piece, coordinate, or destination square. Instead, ask a guiding, Socratic question to make me think about how to improve my position, control space, or handle a threat.';
+
+            // 1. Immediately append the visual thinking bubble
+            const hintLoading = addLoadingBubble('Coach is thinking of a hint...');
+
             fetch('/ask_coach', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    question: 'Give a single, concrete, practical hint for the player right now — no more than two sentences.',
+                    question: dynamicQuestion,
                     fen: moveHistoryFens[currentMoveIndex],
                     pgn: pgnAtView,
                     history: historyAtView,
@@ -1024,9 +1049,20 @@
             })
             .then(r => r.json())
             .then(data => {
-                if (data.status === 'success') appendChatMessage('bot', '💡 Hint: ' + data.answer, true);
+                // 2. Remove the thinking bubble as soon as the result arrives
+                if (hintLoading) hintLoading.remove();
+                if (data.status === 'success') {
+                    appendChatMessage('bot', '💡 Hint: ' + data.answer, true);
+                }
             })
-            .catch(() => {});
+            .catch(() => {
+                if (hintLoading) hintLoading.remove();
+            });
+        }
+
+        // Manual Hint Request Handler (Forces execution regardless of Auto-Hint setting)
+        function requestManualHint() {
+            requestAutoHint(true);
         }
 
         function toggleAutoHint() {
@@ -1035,10 +1071,10 @@
             if (!btn) return;
             if (autoHintMode) {
                 btn.classList.add('active');
-                btn.textContent = 'Coach Hints: On';
+                btn.textContent = 'Auto-Hints: On';
             } else {
                 btn.classList.remove('active');
-                btn.textContent = 'Coach Hints: Off';
+                btn.textContent = 'Auto-Hints: Off';
             }
         }
 
@@ -1633,6 +1669,59 @@
                 toast.style.opacity = '0';
                 setTimeout(() => { toast.style.display = 'none'; }, 400);
             }, 2500);
+        }
+
+        function applyMode(mode, element) {
+            currentGameMode = mode;
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            if (element) element.classList.add('active');
+
+            const evalContainer  = document.getElementById('eval-bar-container');
+            const eloPanel       = document.getElementById('elo-panel');
+            const pgnUploadBtn   = document.getElementById('pgn-upload-btn');
+            const flipBtn        = document.getElementById('flip-btn');
+            const orientationLabel = document.getElementById('orientation-label');
+            const takebackRow    = document.getElementById('takeback-row');
+            const resetBtn       = document.getElementById('reset-game-btn');
+            const boardSide      = document.getElementById('board-side');
+
+            if (mode === 'play') {
+                // Shrink board column and hide evaluation bar
+                if (boardSide) boardSide.classList.add('mode-play');
+                evalContainer.style.display   = 'none';
+                
+                eloPanel.style.display        = 'block';
+                pgnUploadBtn.style.display    = 'none';
+                if (flipBtn) flipBtn.style.display = 'none';
+                if (orientationLabel) orientationLabel.style.display = 'none';
+                takebackRow.style.display     = gameInProgress ? 'flex' : 'none';
+                resetBtn.style.display        = 'none';
+            } else {
+                // Expand board column and restore evaluation bar
+                if (boardSide) boardSide.classList.remove('mode-play');
+                evalContainer.style.display   = 'block';
+                
+                eloPanel.style.display        = 'none';
+                pgnUploadBtn.style.display    = 'block';
+                if (flipBtn) {
+                    flipBtn.style.display     = 'inline-block';
+                    flipBtn.textContent       = `🔄 Flip Board${getPlayingSideText()}`;
+                }
+                if (orientationLabel) {
+                    orientationLabel.style.display = 'inline-block';
+                    updateOrientationLabel();
+                }
+                const history = game.history();
+                takebackRow.style.display  = history.length > 0 ? 'flex' : 'none';
+                resetBtn.style.display     = 'inline-block';
+            }
+
+            // Force Chessboard.js to recalculate square sizes to fit the new gap-free boundaries
+            if (board) {
+                setTimeout(function() {
+                    board.resize();
+                }, 50);
+            }
         }
 
         /* ═══════════════════════════════════════════════════════
