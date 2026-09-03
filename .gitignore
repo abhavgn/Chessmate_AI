@@ -5,3 +5,4 @@ __pycache__/
 .vscode/
 *.py[cod]
 static/css/img/.DS_Storeengines/stockfish
+.env
