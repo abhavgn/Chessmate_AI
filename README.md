@@ -35,12 +35,16 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. Create a `.env` file in the project root or provide environment variables externally.
+4. Create a `.env` file in the project root, then replace the API-key placeholder with your own OpenAI API key. The repository does not include this file because it is excluded by `.gitignore`. Do not commit the file or share the key.
 
 Example `.env`:
 
 ```env
-OPENAI_API_KEY=your_openai_api_key
+# Required: replace the placeholder with your OpenAI API key.
+OPENAI_API_KEY=<ADD_YOUR_OPENAI_API_KEY>
+
+# Optional: choose the OpenAI chat model used by the coach.
+# If omitted, the app uses gpt-4o-mini.
 OPENAI_CHAT_MODEL=gpt-4o-mini
 ```
 
@@ -73,6 +77,9 @@ http://127.0.0.1:5000
 ## Notes
 
 - `app.py` uses `python-dotenv` to load `.env` from the project root.
+- `OPENAI_API_KEY` must contain a valid OpenAI API key for the AI coach features to work.
+- `OPENAI_CHAT_MODEL` comes from the app's environment configuration. It is optional; `app.py` defaults to `gpt-4o-mini` when it is not set.
+- `.env` is excluded by `.gitignore`, so keep your personal API key in that local file and never commit it.
 - The app expects the Stockfish binary to be available at `engines/stockfish`.
 - The AI coach is driven by OpenAI chat completions and relies on the configured API key.
 
